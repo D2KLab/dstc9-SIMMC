@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 
 class SIMMCDataset(Dataset):
 
-    def __init__(self, path, verbose=True):
+    def __init__(self, data_path, metadata_path, verbose=True):
         """Dataset constructor. The dataset has the following shapes
 
             self.id2dialog[<dialogue_id>].keys() = ['dialogue', 'dialogue_coref_map', 'dialogue_idx', 'domains', 'dialogue_task_id']
@@ -21,18 +21,21 @@ class SIMMCDataset(Dataset):
         Args:
             path (str): path to dataset
         """
-        fp = open(path)
-        raw_json = json.load(fp)
+        data_fp = open(data_path)
+        raw_data = json.load(data_fp)
 
-        self.split = raw_json['split']
-        self.version = raw_json['version']
-        self.year = raw_json['year']
-        self.domain = raw_json['domain']
+        metadata_fp = open(metadata_path)
+        self.metadata = json.load(metadata_fp)
+
+        self.split = raw_data['split']
+        self.version = raw_data['version']
+        self.year = raw_data['year']
+        self.domain = raw_data['domain']
         self.verbose = verbose
         if self.verbose:
             print('Creating index of dataset {}'.format(str(self)))
 
-        raw_data = raw_json['dialogue_data']
+        raw_data = raw_data['dialogue_data']
         self.create_index(raw_data)
         if self.verbose:
             print('Index created')
@@ -62,6 +65,35 @@ class SIMMCDataset(Dataset):
             except:
                 print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
             self.id2dialog[dialog['dialogue_idx']] = dialog_obj
+
+
+    def getmetadata(self, obj_id):
+        """Return metadata for the object with the specified id
+
+        Args:
+            obj_id (str): id of the object
+
+        Returns:
+            dict: returns a dict with the following shape
+            {'metadata': 
+                {'availability': [], 
+                'availableSizes': "['L', 'XXL']", 
+                'brand': '212 Local', 
+                'color': ['black'], 
+                'customerRating': '2.06', 
+                'embellishments': ['layered'], 
+                'hemLength': ['knee_length'], 
+                'pattern': [], 
+                'price': '$269', 
+                'size': [], 
+                'skirtStyle': ['asymmetrical', 'fit_and_flare', 'loose'], 
+                'type': 'skirt'
+                }, 
+            'url': 'GByeggJtfhLUq9UGAAAAAABqViN1btAUAAAB'
+            }
+        """
+        return self.metadata[obj_id]
+
 
     def __str__(self):
         return '{}_{}_{}_v{}'.format(self.domain, self.split, self.year, self.version)
