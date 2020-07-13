@@ -1,12 +1,31 @@
 import json
 import pdb
+import string
+import re
 
 from torch.utils.data import Dataset
+from nltk.tokenize import WordPunctTokenizer 
 
+
+"""
+The dialog acts and intents have the shapes:
+DA:<DIALOG_ACT>:<ACTIVITY>:<OBJECT> or DA:<DIALOG_ACT>:<ACTIVITY>:<OBJECT>.<attribute> 
+
+Examples:
+DA:INFORM:GET:CLOTHING.embellishment
+
+The <DIALOG_ACT> values are shared between fashion and furniture dataset. <ACTIVITY> values are dataset specific (see paper fig.3).
+"""
+
+# shared between furniture and fashion dataset
+DIALOG_ACT = {'ASK', 'CONFIRM', 'INFORM', 'PROMPT', 'REQUEST'}
 
 
 
 class SIMMCDataset(Dataset):
+
+
+    ACTIVITY = {'ADD_TO_CART', 'CHECK', 'COMPARE', 'COUNT', 'DISPREFER', 'GET', 'PREFER', 'REFINE'}
 
     def __init__(self, data_path, metadata_path, verbose=True):
         """Dataset constructor. The dataset has the following shapes
@@ -39,6 +58,7 @@ class SIMMCDataset(Dataset):
         self.create_index(raw_data)
         if self.verbose:
             print('Index created')
+        self.create_vocabulary()
 
 
     def __len__(self):
@@ -65,6 +85,50 @@ class SIMMCDataset(Dataset):
             except:
                 print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
             self.id2dialog[dialog['dialogue_idx']] = dialog_obj
+
+
+    def create_vocabulary(self):
+        self.vocabulary = set()
+        tokenizer = WordPunctTokenizer() 
+
+        for dial_id in self.ids:
+            for dial_turn in self.id2dialog[dial_id]['dialogue']:
+                user_tokens = tokenizer.tokenize(dial_turn['transcript'])
+                """
+                pdb.set_trace()
+                for tok in user_tokens:
+                    clean_toks = self.clean_token(tok)
+                    for t in clean_toks:
+                """
+                for tok in user_tokens:
+                    self.vocabulary.add(tok.lower())
+                agent_tokens = tokenizer.tokenize(dial_turn['system_transcript'])
+                for tok in agent_tokens:
+                    self.vocabulary.add(tok.lower())
+
+
+    def clean_token(self, token):
+        #remove puncuation
+        #pdb.set_trace()
+        tmp_token = token.lower()
+        
+        try:
+            if tmp_token[0] in string.punctuation and len(tmp_token) > 1:
+                tmp_token = tmp_token[1:]
+            if tmp_token[-1] in string.punctuation and len(tmp_token) > 1:
+                tmp_token = tmp_token[:-1]
+            tmp_token = tmp_token.split('.-/')
+            for idx, t in enumerate(tmp_token):
+                if t.isnumeric():
+                    tmp_token[idx] = '0'  
+        except:
+            pdb.set_trace()
+        
+        return tmp_token
+
+
+    def get_vocabulary(self):
+        return self.vocabulary
 
 
     def getmetadata(self, obj_id):

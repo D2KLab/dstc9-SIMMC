@@ -7,3 +7,7 @@ Pipfile.lock
 
 # Python cache
 __pycache__
+
+
+#embeddings
+embeddings
