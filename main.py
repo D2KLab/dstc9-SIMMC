@@ -11,12 +11,19 @@ from torch.utils.data import DataLoader
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,3"  # specify which GPU(s) to be used
 
-
+HIDDEN_SIZE = 300
 
 def train(dataset, args):
+
+    dataset[0]
+
+
+
+
     loader = DataLoader(dataset)
     vocabulary = dataset.get_vocabulary()
-    model = BlindStatelessLSTM(args.embeddings, dataset_vocabulary=vocabulary, OOV_corrections=False)
+    model = BlindStatelessLSTM(args.embeddings, dataset_vocabulary=vocabulary, OOV_corrections=False, hidden_size=HIDDEN_SIZE)
+    print('MODEL: {}'.format(model))
     pdb.set_trace()
 
 
@@ -33,7 +40,8 @@ if __name__ == '__main__':
         python main.py \
         --data ../simmc/data/simmc_fashion/fashion_train_dials.json \
         --metadata ../simmc/data/simmc_fashion/fashion_metadata.json \
-        --embeddings embeddings/glove.6B.50d.txt
+        --embeddings embeddings/glove.6B.50d.txt \
+        --actions action_annotations/fashion_train_dials_api_calls.json
     """
     parser = argparse.ArgumentParser()
 
@@ -55,9 +63,15 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to embedding file")
+    parser.add_argument(
+        "--actions",
+        default=None,
+        type=str,
+        required=True,
+        help="Path to action annotations file")
 
     args = parser.parse_args()
-    dataset = SIMMCDatasetForActionPrediction(args.data, args.metadata)
+    dataset = SIMMCDatasetForActionPrediction(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions)
     print(str(dataset))
 
     train(dataset, args)

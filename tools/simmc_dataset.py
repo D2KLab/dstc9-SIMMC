@@ -32,7 +32,7 @@ class SIMMCDataset(Dataset):
 
             self.id2dialog[<dialogue_id>].keys() = ['dialogue', 'dialogue_coref_map', 'dialogue_idx', 'domains', 'dialogue_task_id']
 
-            self.id2dialog[<dialogue_id>][<dialogue_turn>].keys() = ['belief_state', 'domain', 'state_graph_0', 'state_graph_1', 'state_graph_2', 
+            self.id2dialog[<dialogue_id>]['dialogue'][<dialogue_turn>].keys() = ['belief_state', 'domain', 'state_graph_0', 'state_graph_1', 'state_graph_2', 
                                                                     'system_transcript', 'system_transcript_annotated', 'system_turn_label', 
                                                                     'transcript', 'transcript_annotated', 'turn_idx', 'turn_label', 
                                                                     'visual_objects', 'raw_assistant_keystrokes']
@@ -148,7 +148,7 @@ class SIMMCDataset(Dataset):
                 'embellishments': ['layered'], 
                 'hemLength': ['knee_length'], 
                 'pattern': [], 
-                'price': '$269', 
+                'price': '$269',
                 'size': [], 
                 'skirtStyle': ['asymmetrical', 'fit_and_flare', 'loose'], 
                 'type': 'skirt'
@@ -163,22 +163,73 @@ class SIMMCDataset(Dataset):
         return '{}_{}_{}_v{}'.format(self.domain, self.split, self.year, self.version)
 
 
+
 class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
-    def __init__(self, path, verbose=True):
+    #TODO read actions from the generated annotations file
+
+    _ACT2LABEL = {'None': 0,'SearchDatabase': 1, 'SearchMemory': 2, 'SpecifyInfo': 3, 'AddToCart': 4}
+
+    def __init__(self, data_path, metadata_path, actions_path, verbose=True):
         self.task = 'action_prediction'
-        super(SIMMCDatasetForActionPrediction, self).__init__(path, verbose)
+        self.load_actions(actions_path)
+        self.create_target_tensors()
+
+
+        #pdb.set_trace()
+        super(SIMMCDatasetForActionPrediction, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
+
 
     def __getitem__(self, index):
+
+        diff = set()
+        for dial_id in self.ids:
+            dial = self.id2dialog[dial_id]['dialogue']
+            act = self.id2act[dial_id]
+            if len(dial) != len(act):
+                diff.add(dial_id)
+            #assert len(dial) == len(act), 'Booooh'
+        pdb.set_trace() #TODO solve the isse of having len(self.actions[id]) != len(dial[id]['dialogue']) -> actions do not match dialogue turns
+
+
+
+
+
+
         dialogue, coref_map = super().__getitem__(index)
+        pdb.set_trace()
         #pdb.set_trace()
         #for count, dial in enumerate(dialogue):
         #    print('U{}: {} -- [{}]\nA{}: {}'.format(count, dial['transcript'], dial['belief_state'][0], count, dial['system_transcript']))
         #pdb.set_trace()
         return dialogue, coref_map
 
+
     def __len__(self):
         return super().__len__()
 
+
     def __str__(self):
         return '{}_{}'.format(super().__str__(), self.task)
+
+    
+    def load_actions(self, actions_path):
+        self.id2act = {}
+        words = set()
+        with open(actions_path) as fp:
+            raw_actions = json.load(fp)
+        for action in raw_actions:
+            self.id2act[action['dialog_id']] = action['actions']
+            """
+            for a in action['actions']:
+                if a['action_supervision'] is not None:
+                    for att in a['action_supervision']['attributes']:
+                        words.add(att)
+            """
+
+
+    def create_target_tensors(self):
+        """Creates the target tensors that for each dialog and for each turn contains the action and the arguments (tag 0,1 for each word).
+        """
+        pass
+
