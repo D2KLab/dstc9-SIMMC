@@ -16,7 +16,7 @@ flags.DEFINE_spaceseplist(
     "json_path", "../simmc/data/simmc_fashion/fashion_train_dials.json", "JSON containing the dataset"
 )
 flags.DEFINE_string(
-    "save_root", "action_annotations/", "Folder path to save extracted api annotations"
+    "save_root", "annotations/", "Folder path to save extracted api annotations"
 )
 flags.DEFINE_string(
     "metadata_path", "../simmc/data/simmc_fashion/fashion_metadata.json", "Path to fashion metadata"
@@ -48,7 +48,7 @@ def extract_actions(input_json_file):
         focus_image = mm_state["focus_image"]
         focus_images = []
         roundwise_actions = []
-        import pdb; pdb.set_trace() #! debug
+
         for round_datum in dialog_datum["dialogue"]:
             focus_images.append(focus_image)
             # Default None action.
@@ -131,6 +131,11 @@ def extract_info_attributes(round_datum):
             ii in intent
             for ii in ("DA:ASK:GET", "DA:ASK:CHECK", "DA:INFORM:GET")
         ):
+            # If there is no attribute added, default to info.
+            if "." not in intent:
+                get_attribute_matches.append("info")
+                continue
+
             attribute = intent.split(".")[-1]
             if attribute == "info":
                 new_matches = [

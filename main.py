@@ -1,11 +1,11 @@
 import argparse
 import pdb
 
-from models import BlindStatelessLSTM
-
-from tools import SIMMCDataset, SIMMCDatasetForActionPrediction, print_sample_dialogue
 from torch.utils.data import DataLoader
 
+from models import BlindStatelessLSTM
+from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction,
+                   print_sample_dialogue)
 
 #import os
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -15,16 +15,13 @@ HIDDEN_SIZE = 300
 
 def train(dataset, args):
 
-    dataset[0]
-
-
-
-
+    print('DATASET: {}'.format(dataset))
     loader = DataLoader(dataset)
     vocabulary = dataset.get_vocabulary()
     model = BlindStatelessLSTM(args.embeddings, dataset_vocabulary=vocabulary, OOV_corrections=False, hidden_size=HIDDEN_SIZE)
     print('MODEL: {}'.format(model))
     pdb.set_trace()
+
 
 
 
@@ -72,41 +69,5 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     dataset = SIMMCDatasetForActionPrediction(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions)
-    print(str(dataset))
 
     train(dataset, args)
-
-
-    """
-    slots = set()
-    actions = set()
-    for dialogue, coref in loader:
-        print_sample_dialogue(dialogue, annotations=True)
-        pdb.set_trace()
-        for dial in dialogue:
-            #belief state with more than one element
-            #if len(dial['belief_state']) > 1:
-            #    pdb.set_trace()
-
-            #find all the slot types
-            #for state in dial['belief_state']:
-            #    for slot in state['slots']:
-            #        slots.add(slot[0])
-
-            #pdb.set_trace()
-
-            #TODO find the API hierarchy
-            #for state in dial['belief_state']:
-            #    if len(state['act']) > 1:
-            #        pdb.set_trace()
-            #    if state['act'][0][:3] == 'ERR':
-            #        pdb.set_trace()
-            #    actions.add(state['act'][0])
-            if len(dial['transcript']) > 1 or len(dial['system_transcript']) > 1:
-                pdb.set_trace()
-    print(slots)
-    """
-    pdb.set_trace()
-
-
-

@@ -1,14 +1,13 @@
 import json
 import pdb
-import string
 import re
+import string
 
+from nltk.tokenize import WordPunctTokenizer
 from torch.utils.data import Dataset
-from nltk.tokenize import WordPunctTokenizer 
-
 
 """
-The dialog acts and intents have the shapes:
+The dialog intents have the shapes:
 DA:<DIALOG_ACT>:<ACTIVITY>:<OBJECT> or DA:<DIALOG_ACT>:<ACTIVITY>:<OBJECT>.<attribute> 
 
 Examples:
@@ -17,15 +16,15 @@ DA:INFORM:GET:CLOTHING.embellishment
 The <DIALOG_ACT> values are shared between fashion and furniture dataset. <ACTIVITY> values are dataset specific (see paper fig.3).
 """
 
-# shared between furniture and fashion dataset
-DIALOG_ACT = {'ASK', 'CONFIRM', 'INFORM', 'PROMPT', 'REQUEST'}
 
+DIALOG_ACT = {'ASK', 'CONFIRM', 'INFORM', 'PROMPT', 'REQUEST'}
+ACTIVITY = {'ADD_TO_CART', 'CHECK', 'COMPARE', 'COUNT', 'DISPREFER', 'GET', 'PREFER', 'REFINE'}
+_DIALOGS_TO_SKIP = {321, 3969, 3406, 4847, 3414} #actions do not match turns for these dialogues
 
 
 class SIMMCDataset(Dataset):
-
-
-    ACTIVITY = {'ADD_TO_CART', 'CHECK', 'COMPARE', 'COUNT', 'DISPREFER', 'GET', 'PREFER', 'REFINE'}
+    """Dataset wrapper for SIMMC Fashion
+    """
 
     def __init__(self, data_path, metadata_path, verbose=True):
         """Dataset constructor. The dataset has the following shapes
@@ -36,9 +35,9 @@ class SIMMCDataset(Dataset):
                                                                     'system_transcript', 'system_transcript_annotated', 'system_turn_label', 
                                                                     'transcript', 'transcript_annotated', 'turn_idx', 'turn_label', 
                                                                     'visual_objects', 'raw_assistant_keystrokes']
-
         Args:
-            path (str): path to dataset
+            path (str): path to dataset json file
+            metadata_path (str): path to metadata json file file
         """
         data_fp = open(data_path)
         raw_data = json.load(data_fp)
@@ -52,12 +51,12 @@ class SIMMCDataset(Dataset):
         self.domain = raw_data['domain']
         self.verbose = verbose
         if self.verbose:
-            print('Creating index of dataset {}'.format(str(self)))
+            print('Creating dataset index ...')
 
         raw_data = raw_data['dialogue_data']
         self.create_index(raw_data)
         if self.verbose:
-            print('Index created')
+            print(' ... index created')
         self.create_vocabulary()
 
 
@@ -74,6 +73,8 @@ class SIMMCDataset(Dataset):
         self.ids = []
         self.id2dialog = {}
         for dialog in raw_data:
+            if dialog['dialogue_idx'] in _DIALOGS_TO_SKIP:
+                continue
             self.ids.append(dialog['dialogue_idx'])
             try:
                 dialog_obj = {
@@ -83,7 +84,8 @@ class SIMMCDataset(Dataset):
                             'domains': dialog['domains'], 
                             'dialogue_task_id': dialog['dialogue_task_id']}
             except:
-                print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
+                if self.verbose:
+                    print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
             self.id2dialog[dialog['dialogue_idx']] = dialog_obj
 
 
@@ -94,12 +96,6 @@ class SIMMCDataset(Dataset):
         for dial_id in self.ids:
             for dial_turn in self.id2dialog[dial_id]['dialogue']:
                 user_tokens = tokenizer.tokenize(dial_turn['transcript'])
-                """
-                pdb.set_trace()
-                for tok in user_tokens:
-                    clean_toks = self.clean_token(tok)
-                    for t in clean_toks:
-                """
                 for tok in user_tokens:
                     self.vocabulary.add(tok.lower())
                 agent_tokens = tokenizer.tokenize(dial_turn['system_transcript'])
@@ -108,8 +104,15 @@ class SIMMCDataset(Dataset):
 
 
     def clean_token(self, token):
-        #remove puncuation
-        #pdb.set_trace()
+        """Text lowercased, punctuation removal (e.g., from "meta-data" to "meta" and "data") and numbers conversion to 0.
+        These strategies are used to keep the vocabulary more compact (avoiding different embeddings for all the numbers from 0 to 1000)
+
+        Args:
+            token (str): A single token to clean
+
+        Returns:
+            str: cleaned token
+        """
         tmp_token = token.lower()
         
         try:
@@ -165,44 +168,31 @@ class SIMMCDataset(Dataset):
 
 
 class SIMMCDatasetForActionPrediction(SIMMCDataset):
-
-    #TODO read actions from the generated annotations file
+    """Dataset wrapper for SIMMC Fashion for api call prediction subtask
+    """
 
     _ACT2LABEL = {'None': 0,'SearchDatabase': 1, 'SearchMemory': 2, 'SpecifyInfo': 3, 'AddToCart': 4}
 
     def __init__(self, data_path, metadata_path, actions_path, verbose=True):
-        self.task = 'action_prediction'
+        
+        super(SIMMCDatasetForActionPrediction, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
+        self.task = 'api_call_prediction'
         self.load_actions(actions_path)
         self.create_target_tensors()
-
-
-        #pdb.set_trace()
-        super(SIMMCDatasetForActionPrediction, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
-
+        
 
     def __getitem__(self, index):
+        #TODO finish this method. Write a better parent __getitem__() and maybe structure differently the data. Maybe indexing them by dialogue turn
 
-        diff = set()
-        for dial_id in self.ids:
-            dial = self.id2dialog[dial_id]['dialogue']
-            act = self.id2act[dial_id]
-            if len(dial) != len(act):
-                diff.add(dial_id)
-            #assert len(dial) == len(act), 'Booooh'
-        pdb.set_trace() #TODO solve the isse of having len(self.actions[id]) != len(dial[id]['dialogue']) -> actions do not match dialogue turns
-
-
-
-
-
-
-        dialogue, coref_map = super().__getitem__(index)
+        dialogue, _ = super().__getitem__(index)
+        actions = self.id2act[self.ids[index]]
+        assert len(dialogue) == len(actions), 'Lengths of dialogue and actions arrays do not match'
         pdb.set_trace()
         #pdb.set_trace()
         #for count, dial in enumerate(dialogue):
         #    print('U{}: {} -- [{}]\nA{}: {}'.format(count, dial['transcript'], dial['belief_state'][0], count, dial['system_transcript']))
         #pdb.set_trace()
-        return dialogue, coref_map
+        return dialogue, actions
 
 
     def __len__(self):
@@ -210,26 +200,20 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
 
     def __str__(self):
-        return '{}_{}'.format(super().__str__(), self.task)
+        return '{}_subtask({})'.format(super().__str__(), self.task)
 
     
     def load_actions(self, actions_path):
         self.id2act = {}
-        words = set()
         with open(actions_path) as fp:
             raw_actions = json.load(fp)
         for action in raw_actions:
+            if action['dialog_id'] in _DIALOGS_TO_SKIP:
+                continue
             self.id2act[action['dialog_id']] = action['actions']
-            """
-            for a in action['actions']:
-                if a['action_supervision'] is not None:
-                    for att in a['action_supervision']['attributes']:
-                        words.add(att)
-            """
 
 
     def create_target_tensors(self):
         """Creates the target tensors that for each dialog and for each turn contains the action and the arguments (tag 0,1 for each word).
         """
         pass
-
