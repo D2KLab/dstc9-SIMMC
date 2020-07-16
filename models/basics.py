@@ -1,10 +1,12 @@
-import pdb
 import copy
+import pdb
 
-from spellchecker import SpellChecker
-import torch
-from torch import nn
 import numpy as np
+import torch
+from spellchecker import SpellChecker
+from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import torch.nn.functional as F
 
 
 class BlindStatelessLSTM(nn.Module):
@@ -30,6 +32,7 @@ class BlindStatelessLSTM(nn.Module):
         """
 
         super(BlindStatelessLSTM, self).__init__()
+        #torch.manual_seed(seed) #TODO unique seed to replicate the experiment
 
         self.padding = pad_token
         self.corrected_flag = OOV_corrections
@@ -39,19 +42,39 @@ class BlindStatelessLSTM(nn.Module):
         embedding_weights = self.get_embeddings_weights(dataset_vocabulary, OOV_corrections)
 
         num_embeddings, embedding_dim = embedding_weights.shape
-        embeddings_layer = nn.Embedding(num_embeddings, embedding_dim)
-        embeddings_layer.load_state_dict({'weight': embedding_weights})
+        self.embedding_layer = nn.Embedding(num_embeddings, embedding_dim)
+        self.embedding_layer.load_state_dict({'weight': embedding_weights})
 
-        self.network = nn.Sequential(
-                        embeddings_layer,
-                        nn.LSTM(self.embedding_size, hidden_size),
-                        nn.Linear(in_features=hidden_size, out_features=num_labels))
+        self.lstm = nn.LSTM(self.embedding_size, hidden_size, batch_first=True)
+        self.linear = nn.Linear(in_features=hidden_size, out_features=num_labels)
 
 
-    def forward(self, input):
-        # TODO pack_padded_sequence
+    def forward(self, batch, seq_lengths=None):
+        """Forward pass for BlindStatelessLSTM
 
-        pass
+        Args:
+            batch (torch.LongTensor): Tensor containing the batch (shape=BxMAX_SEQ_LEN)
+            seq_lengths (torch.LongTensor, optional): Effective lengths (no pad) of each sequence in the batch. If given the pack_padded__sequence are used.
+                                                        The shape is B. Defaults to None.
+        """
+
+        embedded_seq_tensor = self.embedding_layer(batch)
+        if seq_lengths is not None:
+            # pack padded sequence
+            packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
+        
+        out1, (h_t, c_t) = self.lstm(packed_input)
+
+        """unpack not needed. We don't use the output
+        if seq_lengths is not None:
+            # unpack padded sequence
+            output, input_sizes = pad_packed_sequence(out1, batch_first=True)
+        """
+        out2 = self.linear(h_t[0]) # h_t has shape NUM_DIRxBxHIDDEN_SIZE
+        #out2.shape = BxNUM_LABELS
+        #todo dropout=.5
+        predictions = F.softmax(out2, dim=-1)
+        return out2, predictions
    
 
     def load_embeddings_from_file(self, embedding_path):
@@ -154,5 +177,3 @@ class BlindStatelessLSTM(nn.Module):
 
     def __str__(self):
         return super().__str__()
-
-

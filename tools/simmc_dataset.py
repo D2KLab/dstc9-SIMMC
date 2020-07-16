@@ -21,6 +21,7 @@ The <DIALOG_ACT> values are shared between fashion and furniture dataset. <ACTIV
 DIALOG_ACT = {'ASK', 'CONFIRM', 'INFORM', 'PROMPT', 'REQUEST'}
 ACTIVITY = {'ADD_TO_CART', 'CHECK', 'COMPARE', 'COUNT', 'DISPREFER', 'GET', 'PREFER', 'REFINE'}
 _DIALOGS_TO_SKIP = {321, 3969, 3406, 4847, 3414} #actions do not match turns for these dialogues
+ #! make it dynamic (also for dev) -> THESE DIALOGUES ARE SKIPPED ALSO FOR DEV!!
 
 
 class SIMMCDataset(Dataset):
@@ -39,7 +40,7 @@ class SIMMCDataset(Dataset):
                                                                     'transcript', 'transcript_annotated', 'turn_idx', 'turn_label', 
                                                                     'visual_objects', 'raw_assistant_keystrokes']
 
-            (list) self.transcript[idx] = 'dialogueid_turn' (e.g., '3094_3', '3094_0')
+            (list) self.transcripts[idx] = 'dialogueid_turn' (e.g., '3094_3', '3094_0')
 
             (dict) self.processed_turns[<dialogue_id>][turn] = {'transcript': <tokenized_transcript>, 'system_transcript': <tokenized_system_transcript>}
 
@@ -69,20 +70,20 @@ class SIMMCDataset(Dataset):
 
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.transcripts)
 
 
     def __getitem__(self, index):
-        #dial_id = self.ids[index]
-        #return self.id2dialog[dial_id]['dialogue'], self.id2dialog[dial_id]['dialogue_coref_map']
+
         dial_id, turn = self.transcripts[index].split('_')
         dial_id = int(dial_id)
         turn = int(turn)
-
+        if dial_id == 2117:
+            pdb.set_trace()
         if isinstance(self, SIMMCDatasetForActionPrediction,):
             return self.processed_turns[dial_id][turn]['transcript'], \
                     self.id2act[dial_id][turn]['action']
-                    #self.id2act[dial_id][turn]['action_supervision']['attributes'] handle 'action_supervision': None
+                    #self.id2act[dial_id][turn]['action_supervision']['attributes'] #todo handle 'action_supervision': None
 
 
     def create_index(self, raw_data):
