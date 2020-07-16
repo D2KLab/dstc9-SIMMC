@@ -11,4 +11,5 @@ python main.py \
         --data  $DATASET_PATH\
         --metadata  $METADATA_PATH\
         --embeddings $GLOVE_PATH\
-        --actions $ACTIONS_PATH
+        --actions $ACTIONS_PATH\
+        --cuda
