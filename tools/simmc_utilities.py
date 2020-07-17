@@ -1,5 +1,48 @@
+import matplotlib.pyplot as plt
+import os
 
 
+import sys
+
+class Logger(object):
+    def __init__(self, log_path):
+        self.terminal = sys.stdout
+        self.log = open(log_path, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)  
+
+    def flush(self):
+        #this flush method is needed for python 3 compatibility.
+        #this handles the flush command by doing nothing.
+        #you might want to specify some extra behavior here.
+        pass  
+
+def plotting_loss(save_path, x_values, x_label, y_label, plot_title, functions, legend=True):
+    """plot functions
+
+    Args:
+        save_path (str): path where to save the plot
+        x_values (numpy.array): values on the x axis
+        x_label (str): label for the x axis
+        y_label (str): label for the y axis
+        plot_title (str): title for the plot
+        functions (list): list of tuples (list(values), color, label) where color and label are strings
+        legend (bool): to print the legend for the plot. (Default: True)
+    """
+
+    # plot train vs validation
+    for f in functions:
+        plt.plot(x_values, f[0], color=f[1], label=f[2])
+    
+    plt.title(plot_title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    if legend:
+        plt.legend(loc='best')
+    plt.savefig(save_path)
+    plt.clf
 
 
 def print_action_dialogue(dialogue, actions):

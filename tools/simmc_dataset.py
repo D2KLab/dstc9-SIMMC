@@ -20,8 +20,6 @@ The <DIALOG_ACT> values are shared between fashion and furniture dataset. <ACTIV
 
 DIALOG_ACT = {'ASK', 'CONFIRM', 'INFORM', 'PROMPT', 'REQUEST'}
 ACTIVITY = {'ADD_TO_CART', 'CHECK', 'COMPARE', 'COUNT', 'DISPREFER', 'GET', 'PREFER', 'REFINE'}
-_DIALOGS_TO_SKIP = {321, 3969, 3406, 4847, 3414} #actions do not match turns for these dialogues
- #! make it dynamic (also for dev) -> THESE DIALOGUES ARE SKIPPED ALSO FOR DEV!!
 
 
 class SIMMCDataset(Dataset):
@@ -65,6 +63,7 @@ class SIMMCDataset(Dataset):
         raw_data = raw_data['dialogue_data']
         self.create_index(raw_data)
         if self.verbose:
+            print('Skipped dialogs: {}'.format(self.skipped_dialogs))
             print(' ... index created')
         self.create_vocabulary()
 
@@ -90,11 +89,11 @@ class SIMMCDataset(Dataset):
         self.ids = []
         self.id2dialog = {}
         self.transcripts = []
+        self.skipped_dialogs = set()
         for dialog in raw_data:
-            if dialog['dialogue_idx'] in _DIALOGS_TO_SKIP:
-                continue
-            self.ids.append(dialog['dialogue_idx'])
-            try:
+
+            if 'dialogue_task_id' in dialog:
+                self.ids.append(dialog['dialogue_idx'])
                 dialog_obj = {
                             'dialogue': dialog['dialogue'], 
                             'dialogue_coref_map': dialog['dialogue_coref_map'], 
@@ -102,12 +101,12 @@ class SIMMCDataset(Dataset):
                             'domains': dialog['domains'], 
                             'dialogue_task_id': dialog['dialogue_task_id']}
                 transcripts = ['{}_{}'.format(dialog['dialogue_idx'], turn) for turn, _ in enumerate(dialog['dialogue'])]
-
-            except:
+                self.id2dialog[dialog['dialogue_idx']] = dialog_obj
+                self.transcripts.extend(transcripts)
+            else:
                 if self.verbose:
-                    print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
-            self.id2dialog[dialog['dialogue_idx']] = dialog_obj
-            self.transcripts.extend(transcripts)
+                    #print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
+                    self.skipped_dialogs.add(dialog['dialogue_idx'])
 
 
     def create_vocabulary(self):
@@ -217,6 +216,20 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
         with open(actions_path) as fp:
             raw_actions = json.load(fp)
         for action in raw_actions:
-            if action['dialog_id'] in _DIALOGS_TO_SKIP:
+            if action['dialog_id'] in self.skipped_dialogs:
                 continue
             self.id2act[action['dialog_id']] = action['actions']
+        
+        #check if we have actions for all the turns
+        for dial_id in self.ids:
+            assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
+                'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
+
+        # TODO where are the multiple actions mentioned in the paper??
+        """check frequency for actions
+        act_tmp = {'None': 0,'SearchDatabase': 0, 'SearchMemory': 0, 'SpecifyInfo': 0, 'AddToCart': 0}
+        for dial_id in self.ids:
+            for act in self.id2act[dial_id]:
+                act_tmp[act['action']] += 1
+        pdb.set_trace()
+        """

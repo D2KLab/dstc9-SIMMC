@@ -1,9 +1,7 @@
-#/usr/bin/bash
-
 export DATASET_PATH=../simmc/data/simmc_fashion/fashion_train_dials.json
 export METADATA_PATH=../simmc/data/simmc_fashion/fashion_metadata.json
 export EVAL_PATH=../simmc/data/simmc_fashion/fashion_dev_dials.json
-export GLOVE_PATH=embeddings/glove.6B.300d.txt
+export GLOVE_PATH=embeddings/glove.6B.50d.txt
 export ACTIONS_PATH=annotations/fashion_train_dials_api_calls.json
 export EVAL_ACTIONS_PATH=annotations/fashion_dev_dials_api_calls.json
 
@@ -15,5 +13,5 @@ python main.py \
         --embeddings $GLOVE_PATH\
         --actions $ACTIONS_PATH\
         --eval_actions $EVAL_ACTIONS_PATH\
-        --batch_size 512\
-        --cuda 0
+        --batch_size 64\
+        --cuda 2

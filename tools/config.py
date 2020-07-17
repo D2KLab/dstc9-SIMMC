@@ -8,7 +8,8 @@ class SIMMCFashionConfig():
 
 class TrainConfig():
 
-    _N_EPOCHS = 20
-    _BATCH_SIZE = 16
-    _LEARNING_RATE = 1e-3
+    _N_EPOCHS = 300
+    #_BATCH_SIZE = 16
+    _LEARNING_RATE = 1e-5
     _PAD_TOKEN = '[PAD]'
+    _CHECKPOINT_FOLDER = 'checkpoints'

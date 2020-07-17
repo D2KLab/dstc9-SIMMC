@@ -46,6 +46,7 @@ class BlindStatelessLSTM(nn.Module):
         self.embedding_layer.load_state_dict({'weight': embedding_weights})
 
         self.lstm = nn.LSTM(self.embedding_size, hidden_size, batch_first=True)
+        self.dropout = nn.Dropout(p=0.5)
         self.linear = nn.Linear(in_features=hidden_size, out_features=num_labels)
 
 
@@ -70,6 +71,7 @@ class BlindStatelessLSTM(nn.Module):
             # unpack padded sequence
             output, input_sizes = pad_packed_sequence(out1, batch_first=True)
         """
+        h_t = self.dropout(h_t)
         out2 = self.linear(h_t[0]) # h_t has shape NUM_DIRxBxHIDDEN_SIZE
         #out2.shape = BxNUM_LABELS
         #todo dropout=.5
@@ -98,7 +100,7 @@ class BlindStatelessLSTM(nn.Module):
         if OOV_corrections:
             dataset_vocabulary = self.correct_spelling(dataset_vocabulary)
         matrix_len = len(dataset_vocabulary)+1 #take into account the padding token
-        weights_matrix = np.zeros((matrix_len, 50))
+        weights_matrix = np.zeros((matrix_len, self.embedding_size))
 
         # set pad token for index 0
         weights_matrix[0] = np.zeros(shape=(self.embedding_size, ))
