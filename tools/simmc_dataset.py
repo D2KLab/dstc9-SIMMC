@@ -225,7 +225,6 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
             assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
                 'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
 
-        # TODO where are the multiple actions mentioned in the paper??
         """check frequency for actions
         act_tmp = {'None': 0,'SearchDatabase': 0, 'SearchMemory': 0, 'SpecifyInfo': 0, 'AddToCart': 0}
         for dial_id in self.ids:

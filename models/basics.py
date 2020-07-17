@@ -9,6 +9,9 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import torch.nn.functional as F
 
 
+_HIDDEN_SIZE = 300
+
+
 class BlindStatelessLSTM(nn.Module):
     """Implementation of a blind and stateless LSTM for action prediction. It approximates the probability distribution:
 
@@ -23,7 +26,7 @@ class BlindStatelessLSTM(nn.Module):
         self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
     """
 
-    def __init__(self, embedding_path, dataset_vocabulary, hidden_size, num_labels, pad_token, device, OOV_corrections=False):
+    def __init__(self, embedding_path, dataset_vocabulary, num_labels, pad_token, device, OOV_corrections=False):
         """
         Glove download: https://nlp.stanford.edu/projects/glove/
 
@@ -36,7 +39,7 @@ class BlindStatelessLSTM(nn.Module):
 
         self.padding = pad_token
         self.corrected_flag = OOV_corrections
-        self.hidden_size = hidden_size
+        self.hidden_size = _HIDDEN_SIZE
         self.embedding_file = embedding_path.split('/')[-1]
         self.load_embeddings_from_file(embedding_path)
         embedding_weights = self.get_embeddings_weights(dataset_vocabulary, OOV_corrections)
@@ -45,9 +48,9 @@ class BlindStatelessLSTM(nn.Module):
         self.embedding_layer = nn.Embedding(num_embeddings, embedding_dim)
         self.embedding_layer.load_state_dict({'weight': embedding_weights})
 
-        self.lstm = nn.LSTM(self.embedding_size, hidden_size, batch_first=True)
+        self.lstm = nn.LSTM(self.embedding_size, self.hidden_size, batch_first=True)
         self.dropout = nn.Dropout(p=0.5)
-        self.linear = nn.Linear(in_features=hidden_size, out_features=num_labels)
+        self.linear = nn.Linear(in_features=self.hidden_size, out_features=num_labels)
 
 
     def forward(self, batch, seq_lengths=None):
@@ -74,7 +77,6 @@ class BlindStatelessLSTM(nn.Module):
         h_t = self.dropout(h_t)
         out2 = self.linear(h_t[0]) # h_t has shape NUM_DIRxBxHIDDEN_SIZE
         #out2.shape = BxNUM_LABELS
-        #todo dropout=.5
         predictions = F.softmax(out2, dim=-1)
         return out2, predictions
    

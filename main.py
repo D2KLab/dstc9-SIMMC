@@ -19,9 +19,7 @@ import os
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,3"  # specify which GPU(s) to be used
 
 
-HIDDEN_SIZE = 300
-
-
+# TODO where are the multiple actions mentioned in the paper??
 
 
 
@@ -61,7 +59,7 @@ def train(train_dataset, dev_dataset, args, device):
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     model = BlindStatelessLSTM(args.embeddings, dataset_vocabulary=vocabulary, OOV_corrections=False, 
-                                num_labels=SIMMCFashionConfig._FASHION_ACTION_NO, hidden_size=HIDDEN_SIZE,
+                                num_labels=SIMMCFashionConfig._FASHION_ACTION_NO,
                                 pad_token = TrainConfig._PAD_TOKEN, device=device)
     model.to(device)
     print('MODEL: {}'.format(model))
@@ -76,7 +74,7 @@ def train(train_dataset, dev_dataset, args, device):
 
     #prepare loss and optimizer
     criterion = torch.nn.CrossEntropyLoss().to(device) #todo set weights based on dataset balancing
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=0.1) #todo weight_decay=0.1
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE) #todo weight_decay=0.1
 
     #prepare containers for statistics
     losses_trend = {'train': [], 'dev': []}
@@ -110,6 +108,10 @@ def train(train_dataset, dev_dataset, args, device):
         # save checkpoint if best model
         if losses_trend['dev'][-1] < best_loss:
             #todo save checkpoint
+            best_loss = losses_trend['dev'][-1]
+            torch.save(model.cpu().state_dict(),\
+                       os.path.join(checkpoint_dir, 'state_dict.pt'))
+            model.to(device)
             pass
         
         print('EPOCH #{} :: train_loss = {} ; dev_loss = {}'
