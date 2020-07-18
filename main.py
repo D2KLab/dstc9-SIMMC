@@ -19,8 +19,6 @@ import os
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,3"  # specify which GPU(s) to be used
 
 
-# TODO where are the multiple actions mentioned in the paper??
-
 
 
 def forward_step(model, batch, targets, device, criterion, seq_lengths=None):
@@ -66,7 +64,7 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True,
+            'shuffle': False,
             'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
@@ -85,9 +83,10 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
 
-        for curr_step, (batch, targets, seq_lengths) in enumerate(trainloader):
-
-            loss, _ = forward_step(model, batch, targets, device, criterion, seq_lengths=seq_lengths)
+        for curr_step, (batch, actions, seq_lengths, arguments) in enumerate(trainloader):
+            pdb.set_trace()
+            #todo send also the arguments and predict them
+            loss, _ = forward_step(model, batch, actions, device, criterion, seq_lengths=seq_lengths)
             #backward
             optimizer.zero_grad()
             loss.backward()

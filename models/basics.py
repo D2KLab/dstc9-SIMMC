@@ -152,7 +152,8 @@ class BlindStatelessLSTM(nn.Module):
             seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence 
         """
         
-        targets = torch.tensor([item[1] for item in batch])
+        actions = torch.tensor([item[1] for item in batch])
+        arguments = torch.tensor([item[2] for item in batch])
 
         seq_ids = []
         for item in batch:
@@ -173,10 +174,11 @@ class BlindStatelessLSTM(nn.Module):
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
         seq_tensor = seq_tensor[perm_idx]
-        targets = targets[perm_idx]
+        actions = actions[perm_idx]
+        arguments = arguments[perm_idx]
 
         # seq_lengths is used to create a pack_padded_sequence
-        return seq_tensor, targets, seq_lengths
+        return seq_tensor, actions, seq_lengths, arguments
 
 
     def __str__(self):

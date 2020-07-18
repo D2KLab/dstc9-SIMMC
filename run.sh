@@ -15,5 +15,5 @@ python main.py \
         --embeddings $GLOVE_PATH\
         --actions $ACTIONS_PATH\
         --eval_actions $EVAL_ACTIONS_PATH\
-        --batch_size 512\
+        --batch_size 4\
         --cuda 0
