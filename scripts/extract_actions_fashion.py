@@ -13,7 +13,7 @@ import os
 
 FLAGS = flags.FLAGS
 flags.DEFINE_spaceseplist(
-    "json_path", "../simmc/data/simmc_fashion/fashion_dev_dials.json", "JSON containing the dataset"
+    "json_path", "../simmc/data/simmc_fashion/fashion_devtest_dials.json", "JSON containing the dataset"
 )
 flags.DEFINE_string(
     "save_root", "annotations/", "Folder path to save extracted api annotations"

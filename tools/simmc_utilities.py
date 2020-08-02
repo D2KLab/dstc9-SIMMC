@@ -42,7 +42,7 @@ def plotting_loss(save_path, x_values, x_label, y_label, plot_title, functions, 
     if legend:
         plt.legend(loc='best')
     plt.savefig(save_path)
-    plt.clf
+    plt.clf()
 
 
 def print_action_dialogue(dialogue, actions):

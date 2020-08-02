@@ -26,13 +26,14 @@ class BlindStatelessLSTM(nn.Module):
         self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
     """
 
-    def __init__(self, embedding_path, dataset_vocabulary, num_labels, pad_token, device, OOV_corrections=False):
+    def __init__(self, embedding_path, dataset_vocabulary, num_actions, num_args, pad_token, OOV_corrections=False):
         """
         Glove download: https://nlp.stanford.edu/projects/glove/
 
         Args:
             embedding_path ([type]): [description]
         """
+        #TODO multilabel classification for API arguments
 
         super(BlindStatelessLSTM, self).__init__()
         #torch.manual_seed(seed) #TODO unique seed to replicate the experiment
@@ -50,7 +51,8 @@ class BlindStatelessLSTM(nn.Module):
 
         self.lstm = nn.LSTM(self.embedding_size, self.hidden_size, batch_first=True)
         self.dropout = nn.Dropout(p=0.5)
-        self.linear = nn.Linear(in_features=self.hidden_size, out_features=num_labels)
+        self.actions_linear = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
+        self.args_linear = nn.Linear(in_features=self.hidden_size, out_features=num_args)
 
 
     def forward(self, batch, seq_lengths=None):
@@ -75,10 +77,14 @@ class BlindStatelessLSTM(nn.Module):
             output, input_sizes = pad_packed_sequence(out1, batch_first=True)
         """
         h_t = self.dropout(h_t)
-        out2 = self.linear(h_t[0]) # h_t has shape NUM_DIRxBxHIDDEN_SIZE
+        # h_t has shape NUM_DIRxBxHIDDEN_SIZE
+        actions_out = self.actions_linear(h_t[0])
+        args_out = self.args_linear(h_t[0])
+
+
         #out2.shape = BxNUM_LABELS
-        predictions = F.softmax(out2, dim=-1)
-        return out2, predictions
+        #predictions_out = F.softmax(actions_out, dim=-1)
+        return actions_out, args_out
    
 
     def load_embeddings_from_file(self, embedding_path):

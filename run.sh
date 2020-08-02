@@ -8,7 +8,7 @@ export ACTIONS_PATH=annotations/fashion_train_dials_api_calls.json
 export EVAL_ACTIONS_PATH=annotations/fashion_dev_dials_api_calls.json
 
 
-python main.py \
+python train.py \
         --data  $DATASET_PATH\
         --metadata  $METADATA_PATH\
         --eval $EVAL_PATH\
