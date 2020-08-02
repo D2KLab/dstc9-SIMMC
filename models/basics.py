@@ -33,7 +33,6 @@ class BlindStatelessLSTM(nn.Module):
         Args:
             embedding_path ([type]): [description]
         """
-        #TODO multilabel classification for API arguments
 
         super(BlindStatelessLSTM, self).__init__()
         #torch.manual_seed(seed) #TODO unique seed to replicate the experiment
@@ -78,13 +77,13 @@ class BlindStatelessLSTM(nn.Module):
         """
         h_t = self.dropout(h_t)
         # h_t has shape NUM_DIRxBxHIDDEN_SIZE
-        actions_out = self.actions_linear(h_t[0])
-        args_out = self.args_linear(h_t[0])
-
+        actions_logits = self.actions_linear(h_t[0])
+        args_logits = self.args_linear(h_t[0])
 
         #out2.shape = BxNUM_LABELS
-        #predictions_out = F.softmax(actions_out, dim=-1)
-        return actions_out, args_out
+        actions_probs = F.softmax(actions_logits, dim=-1)
+        args_probs = torch.sigmoid(args_logits)
+        return actions_logits, args_logits, actions_probs, args_probs
    
 
     def load_embeddings_from_file(self, embedding_path):

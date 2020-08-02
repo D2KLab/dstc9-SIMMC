@@ -73,7 +73,7 @@ class SIMMCDataset(Dataset):
 
 
     def __getitem__(self, index):
-
+        #todo return dialog id and turn number
         dial_id, turn = self.transcripts[index].split('_')
         dial_id = int(dial_id)
         turn = int(turn)

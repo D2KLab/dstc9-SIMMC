@@ -19,6 +19,7 @@ class Logger(object):
         #you might want to specify some extra behavior here.
         pass  
 
+
 def plotting_loss(save_path, x_values, x_label, y_label, plot_title, functions, legend=True):
     """plot functions
 
@@ -65,8 +66,6 @@ def print_action_dialogue(dialogue, actions):
                     turn['state_graph_0'], turn['state_graph_1'], turn['state_graph_2']))
             print('-------------------------------\n\n')
         """  
-
-
 
 
 def print_sample_dialogue(dialogue, annotations=True):

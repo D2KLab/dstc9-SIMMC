@@ -41,7 +41,6 @@ def plotting(epochs, losses_trend, checkpoint_dir):
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Arguments loss trend', x_label='epochs', y_label='loss')
 
 
-
 def forward_step(model, batch, actions_targets, args_targets, device, actions_criterion, args_criterion, seq_lengths=None):
 
     batch = batch.to(device)
@@ -49,19 +48,25 @@ def forward_step(model, batch, actions_targets, args_targets, device, actions_cr
     args_targets = args_targets.to(device)
     seq_lengths =  seq_lengths.to(device)
 
-    actions_out, args_out = model(batch, seq_lengths)
+    actions_logits, args_logits, actions_probs, args_probs = model(batch, seq_lengths)
 
-    actions_loss = actions_criterion(actions_out, actions_targets)
-    args_targets = args_targets.type_as(actions_out)
-    args_loss = args_criterion(args_out, args_targets)
+    actions_loss = actions_criterion(actions_logits, actions_targets)
+    args_targets = args_targets.type_as(actions_logits)
+    args_loss = args_criterion(args_logits, args_targets)
 
-    predictions = -1 #todo implement
-    return actions_loss, args_loss, predictions
+    """ Not used
+    actions_predictions = torch.argmax(actions_probs, dim=-1)
+    args_predictions = []
+    for batch_idx, t in enumerate(args_probs):
+        args_predictions.append([])
+        for pos, val in enumerate(t):
+            if val >= .5:
+                args_predictions[batch_idx].append(pos)
+    """
+    actions_predictions = None
+    args_predictions = None
 
-
-
-
-
+    return actions_loss, args_loss, actions_predictions, args_predictions
 
 
 def train(train_dataset, dev_dataset, args, device):
@@ -117,15 +122,14 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = {'global': [], 'actions': [], 'args': []}
 
         for curr_step, (batch, actions, seq_lengths, args) in enumerate(trainloader):
-            #pdb.set_trace()
-            #todo send also the arguments and predict them
-            actions_loss, args_loss, _ = forward_step(model, batch, 
+            actions_loss, args_loss, _, _ = forward_step(model, batch, 
                                         actions_targets=actions, 
                                         args_targets=args,
                                         actions_criterion=actions_criterion,
                                         args_criterion=args_criterion,
                                         seq_lengths=seq_lengths,
                                         device=device)
+            pdb.set_trace()
             #backward
             optimizer.zero_grad()
             loss = (actions_loss + args_loss)/2
@@ -143,7 +147,7 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = {'global': [], 'actions': [], 'args': []} 
         for curr_step, (batch, actions, seq_lengths, args) in enumerate(devloader):
 
-            actions_loss, args_loss, predictions = forward_step(model, batch, 
+            actions_loss, args_loss, _, _ = forward_step(model, batch, 
                                                                 actions_targets=actions, 
                                                                 args_targets=args,
                                                                 actions_criterion=actions_criterion,

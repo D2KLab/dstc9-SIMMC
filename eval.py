@@ -36,7 +36,7 @@ def eval(test_dataset, args, device):
         actions = actions.to(device)
         args = args.to(device)
 
-        actions_out, args_out = model(batch, seq_lengths)
+        actions_out, args_out, actions_probs, args_probs = model(batch, seq_lengths)
         
         pass
 
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     """Example
 
         python main.py \
-        --model checkpoints/2020-08-02T17:08:20\
+        --model checkpoints/2020-08-02T21:47:10\
         --data ../simmc/data/simmc_fashion/fashion_devtrest_dials.json \
         --metadata ../simmc/data/simmc_fashion/fashion_metadata.json \
         --actions annotations/fashion_devtest_dials_api_calls.json \
