@@ -83,18 +83,26 @@ def train(train_dataset, dev_dataset, args, device):
     print('TRAINING DATASET: {}'.format(train_dataset))
     print('VALIDATION DATASET: {}'.format(dev_dataset))
 
-    # prepare model
+    # prepare model's vocabulary
     vocabulary_train = train_dataset.get_vocabulary()
     vocabulary_dev = dev_dataset.get_vocabulary()
     vocabulary = vocabulary_train.union(vocabulary_dev)
+    word2id = {}
+    word2id[TrainConfig._PAD_TOKEN] = 0
+    word2id[TrainConfig._UNK_TOKEN] = 1
+    for idx, word in enumerate(vocabulary):
+        word2id[word] = idx+2
+    torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
+    # prepare moel
     model = BlindStatelessLSTM(args.embeddings, 
-                                dataset_vocabulary=vocabulary, 
+                                word2id=word2id, 
                                 OOV_corrections=False, 
                                 num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
                                 num_args=SIMMCFashionConfig._FASHION_ARGS_NO,
-                                pad_token=TrainConfig._PAD_TOKEN)
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN)
     model.to(device)
     print('MODEL: {}'.format(model))
 
@@ -121,7 +129,7 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = {'global': [], 'actions': [], 'args': []}
 
-        for curr_step, (batch, actions, seq_lengths, args) in enumerate(trainloader):
+        for curr_step, (dial_ids, turns, batch, seq_lengths, actions, args) in enumerate(trainloader):
             actions_loss, args_loss, _, _ = forward_step(model, batch, 
                                         actions_targets=actions, 
                                         args_targets=args,
@@ -129,7 +137,6 @@ def train(train_dataset, dev_dataset, args, device):
                                         args_criterion=args_criterion,
                                         seq_lengths=seq_lengths,
                                         device=device)
-            pdb.set_trace()
             #backward
             optimizer.zero_grad()
             loss = (actions_loss + args_loss)/2
@@ -144,33 +151,32 @@ def train(train_dataset, dev_dataset, args, device):
         losses_trend['train']['args'].append(np.mean(curr_epoch_losses['args']))
 
         model.eval()
-        curr_epoch_losses = {'global': [], 'actions': [], 'args': []} 
-        for curr_step, (batch, actions, seq_lengths, args) in enumerate(devloader):
+        curr_epoch_losses = {'global': [], 'actions': [], 'args': []}
+        with torch.no_grad(): 
+            for curr_step, (dial_ids, turns, batch, seq_lengths, actions, args) in enumerate(devloader):
 
-            actions_loss, args_loss, _, _ = forward_step(model, batch, 
-                                                                actions_targets=actions, 
-                                                                args_targets=args,
-                                                                actions_criterion=actions_criterion,
-                                                                args_criterion=args_criterion,
-                                                                seq_lengths=seq_lengths,
-                                                                device=device)
-            loss = (actions_loss + args_loss)/2
+                actions_loss, args_loss, _, _ = forward_step(model, batch, 
+                                                                    actions_targets=actions, 
+                                                                    args_targets=args,
+                                                                    actions_criterion=actions_criterion,
+                                                                    args_criterion=args_criterion,
+                                                                    seq_lengths=seq_lengths,
+                                                                    device=device)
+                loss = (actions_loss + args_loss)/2
 
-            curr_epoch_losses['global'].append(loss.item())
-            curr_epoch_losses['actions'].append(actions_loss.item())
-            curr_epoch_losses['args'].append(args_loss.item())
+                curr_epoch_losses['global'].append(loss.item())
+                curr_epoch_losses['actions'].append(actions_loss.item())
+                curr_epoch_losses['args'].append(args_loss.item())
         losses_trend['dev']['global'].append(np.mean(curr_epoch_losses['global']))
         losses_trend['dev']['actions'].append(np.mean(curr_epoch_losses['actions']))
         losses_trend['dev']['args'].append(np.mean(curr_epoch_losses['args']))
 
         # save checkpoint if best model
         if losses_trend['dev']['global'][-1] < best_loss:
-            #todo save checkpoint
             best_loss = losses_trend['dev']['global'][-1]
             torch.save(model.cpu().state_dict(),\
                        os.path.join(checkpoint_dir, 'state_dict.pt'))
             model.to(device)
-            pass
         
         print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f}'
                             .format(epoch+1, losses_trend['train']['global'][-1], losses_trend['dev']['global'][-1]))

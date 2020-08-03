@@ -26,7 +26,7 @@ class BlindStatelessLSTM(nn.Module):
         self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
     """
 
-    def __init__(self, embedding_path, dataset_vocabulary, num_actions, num_args, pad_token, OOV_corrections=False):
+    def __init__(self, embedding_path, word2id, num_actions, num_args, pad_token, unk_token, OOV_corrections=False):
         """
         Glove download: https://nlp.stanford.edu/projects/glove/
 
@@ -37,12 +37,15 @@ class BlindStatelessLSTM(nn.Module):
         super(BlindStatelessLSTM, self).__init__()
         #torch.manual_seed(seed) #TODO unique seed to replicate the experiment
 
-        self.padding = pad_token
+        self.pad_token = pad_token
+        self.unk_token = unk_token
         self.corrected_flag = OOV_corrections
         self.hidden_size = _HIDDEN_SIZE
+        self.word2id = word2id
         self.embedding_file = embedding_path.split('/')[-1]
         self.load_embeddings_from_file(embedding_path)
-        embedding_weights = self.get_embeddings_weights(dataset_vocabulary, OOV_corrections)
+
+        embedding_weights = self.get_embeddings_weights(OOV_corrections)
 
         num_embeddings, embedding_dim = embedding_weights.shape
         self.embedding_layer = nn.Embedding(num_embeddings, embedding_dim)
@@ -92,7 +95,6 @@ class BlindStatelessLSTM(nn.Module):
         with open(embedding_path) as fp:
             for l in fp:
                 line_tokens = l.split()
-                #pdb.set_trace()
                 word = line_tokens[0]
                 if word in self.glove:
                     raise Exception('Repeated words in {} embeddings file'.format(embedding_path))
@@ -101,28 +103,28 @@ class BlindStatelessLSTM(nn.Module):
         self.embedding_size = vector.size
 
 
-    def get_embeddings_weights(self, dataset_vocabulary, OOV_corrections):
+    def get_embeddings_weights(self, OOV_corrections):
 
-        self.word2id = {}
-        if OOV_corrections:
-            dataset_vocabulary = self.correct_spelling(dataset_vocabulary)
-        matrix_len = len(dataset_vocabulary)+1 #take into account the padding token
+        #if OOV_corrections:
+        #    dataset_vocabulary = self.correct_spelling(dataset_vocabulary)
+        matrix_len = len(self.word2id)
         weights_matrix = np.zeros((matrix_len, self.embedding_size))
 
-        # set pad token for index 0
-        weights_matrix[0] = np.zeros(shape=(self.embedding_size, ))
-        self.word2id[self.padding] = 0
-        for idx, word in enumerate(dataset_vocabulary):
+        # set pad and unknow ids
+        pad_id = self.word2id[self.pad_token]
+        unk_id = self.word2id[self.unk_token]
+        weights_matrix[pad_id] = np.zeros(shape=(self.embedding_size, ))
+        weights_matrix[unk_id] = np.random.normal(scale=0.6, size=(self.embedding_size, ))
+        
+        for idx, word in enumerate(self.word2id):
             if word in self.glove:
-                 weights_matrix[idx+1] = self.glove[word]
-            else:
-                weights_matrix[idx+1] = np.random.normal(scale=0.6, size=(self.embedding_size, ))
-            self.word2id[word] = idx+1
+                 weights_matrix[idx] = self.glove[word]
 
         return torch.tensor(weights_matrix, dtype=torch.float32)
 
 
     def correct_spelling(self, dataset_vocabulary):
+        #todo fix: now dataset_vocabulary is a map, not a set (get the .keys())
         oov = []
         self.corrections = {}
         checker = SpellChecker()
@@ -156,15 +158,20 @@ class BlindStatelessLSTM(nn.Module):
             targets (torch.Longtensor): tensor with B shape containing target actions
             seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence 
         """
-        
-        actions = torch.tensor([item[1] for item in batch])
-        arguments = torch.tensor([item[2] for item in batch])
+        dial_ids = [item[0] for item in batch]
+        turns = [item[1] for item in batch]
+        actions = torch.tensor([item[3] for item in batch])
+        arguments = torch.tensor([item[4] for item in batch])
 
+        # transform words to ids
         seq_ids = []
         for item in batch:
             curr_seq = []
-            for word in item[0].split():
-                curr_seq.append(self.word2id[word])
+            for word in item[2].split():
+                if word in self.word2id:
+                    curr_seq.append(self.word2id[word])
+                else:
+                    curr_seq.append(self.word2id[self.unk_token])
             seq_ids.append(curr_seq)
         
         seq_lengths = torch.tensor(list(map(len, seq_ids)), dtype=torch.long)
@@ -183,7 +190,7 @@ class BlindStatelessLSTM(nn.Module):
         arguments = arguments[perm_idx]
 
         # seq_lengths is used to create a pack_padded_sequence
-        return seq_tensor, actions, seq_lengths, arguments
+        return dial_ids, turns, seq_tensor, seq_lengths, actions, arguments
 
 
     def __str__(self):

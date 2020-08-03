@@ -13,4 +13,5 @@ class TrainConfig():
     #_BATCH_SIZE = 16
     _LEARNING_RATE = 1e-5
     _PAD_TOKEN = '[PAD]'
+    _UNK_TOKEN = '[UNK]'
     _CHECKPOINT_FOLDER = 'checkpoints'

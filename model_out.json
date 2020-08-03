@@ -1,0 +1,16 @@
+[
+	{
+		"dialog_id": 2494,  
+		"predictions": [
+			{
+				"action": "SearchDatabase",
+				"action_log_prob": {
+					"SearchDatabase": 0.79
+				},
+				"attributes": {
+					"boh": "boh"
+				}
+			}
+		]
+	}
+]

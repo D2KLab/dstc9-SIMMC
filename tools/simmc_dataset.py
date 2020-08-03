@@ -83,7 +83,8 @@ class SIMMCDataset(Dataset):
             arguments = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:
                 arguments = self.id2act[dial_id][turn]['action_supervision']['attributes']
-            return self.processed_turns[dial_id][turn]['transcript'], \
+            return dial_id, turn, \
+                    self.processed_turns[dial_id][turn]['transcript'], \
                     self.id2act[dial_id][turn]['action'],\
                     arguments
 
@@ -187,6 +188,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
     """
 
     _ACT2LABEL = {'None': 0,'SearchDatabase': 1, 'SearchMemory': 2, 'SpecifyInfo': 3, 'AddToCart': 4}
+    _LABEL2ACT = ['None','SearchDatabase', 'SearchMemory', 'SpecifyInfo', 'AddToCart']
     _ARG2LABEL = {'embellishment': 0, 'skirtStyle': 1, 'availableSizes': 2, 'dressStyle': 3, 'material': 4, 'clothingStyle': 5, 'jacketStyle': 6, 
                     'sleeveLength': 7, 'soldBy': 8, 'price': 9, 'ageRange': 10, 'hemLength': 11, 'size': 12, 'warmthRating': 13, 'sweaterStyle': 14, 
                     'forGender': 15, 'madeIn': 16, 'info': 17, 'customerRating': 18, 'hemStyle': 19, 'hasPart': 20, 'pattern': 21, 'clothingCategory': 22, 
@@ -207,16 +209,16 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
         
 
     def __getitem__(self, index):
-        #TODO think about labelling the arguments in an efficient way. To pack them -> one hot vector
-        transcript, action, arguments = super().__getitem__(index)
+
+        dial_id, turn, transcript, action, arguments = super().__getitem__(index)
+
         one_hot_args = [0]*(len(self._ARG2LABEL))
         for arg in arguments:
             assert arg in self._ARG2LABEL, 'Unkown argument \'{}\''.format(arg)
             assert one_hot_args[self._ARG2LABEL[arg]] == 0, 'Argument \'{}\' is present multiple times'.format(arg)
             one_hot_args[self._ARG2LABEL[arg]] = 1
-        #pdb.set_trace()
 
-        return transcript, self._ACT2LABEL[action], one_hot_args
+        return dial_id, turn, transcript, self._ACT2LABEL[action], one_hot_args
 
 
     def __len__(self):
