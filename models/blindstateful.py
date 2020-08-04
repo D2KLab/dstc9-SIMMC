@@ -68,3 +68,6 @@ class Dunno(nn.Module):
 
         # seq_lengths is used to create a pack_padded_sequence
         return dial_ids, turns, seq_tensor, seq_lengths, actions, arguments
+
+    def __str__(self):
+        return super().__str__()

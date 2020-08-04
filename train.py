@@ -116,9 +116,9 @@ def train(train_dataset, dev_dataset, args, device):
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
     #prepare loss and optimizer
-    actions_criterion = torch.nn.CrossEntropyLoss().to(device) #todo set weights based on dataset balancing
+    actions_criterion = torch.nn.CrossEntropyLoss().to(device) #? set weights based on dataset balancing
     args_criterion = torch.nn.BCEWithLogitsLoss().to(device)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE) #todo weight_decay=0.1
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE) #? weight_decay=0.1
 
     #prepare containers for statistics
     losses_trend = {'train': {'global':[], 'actions': [], 'args': []}, 
