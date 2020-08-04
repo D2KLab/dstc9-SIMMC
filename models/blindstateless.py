@@ -154,14 +154,17 @@ class BlindStatelessLSTM(nn.Module):
             batch (tuple): tuple of element returned by the Dataset.__getitem__()
 
         Returns:
+            dial_ids (list): list of dialogue ids
+            turns (list): list of dialogue turn numbers
             seq_tensor (torch.LongTensor): tensor with BxMAX_SEQ_LEN containing padded sequences of user transcript sorted by descending effective lengths
-            targets (torch.Longtensor): tensor with B shape containing target actions
-            seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence 
+            seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence
+            actions (torch.Longtensor): tensor with B shape containing target actions
+            arguments (torch.Longtensor): tensor with Bx33 shape containing arguments one-hot vectors, one for each sample.
         """
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
-        actions = torch.tensor([item[3] for item in batch])
-        arguments = torch.tensor([item[4] for item in batch])
+        actions = torch.tensor([item[4] for item in batch])
+        arguments = torch.tensor([item[5] for item in batch])
 
         # transform words to ids
         seq_ids = []

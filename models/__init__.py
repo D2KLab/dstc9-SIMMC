@@ -1,1 +1,1 @@
-from .basics import BlindStatelessLSTM
+from .blindstateless import BlindStatelessLSTM

@@ -9,7 +9,7 @@ class SIMMCFashionConfig():
 
 class TrainConfig():
 
-    _N_EPOCHS = 20
+    _N_EPOCHS = 100
     #_BATCH_SIZE = 16
     _LEARNING_RATE = 1e-5
     _PAD_TOKEN = '[PAD]'

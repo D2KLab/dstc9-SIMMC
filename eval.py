@@ -1,6 +1,7 @@
 import argparse
-import pdb
 import json
+import os
+import pdb
 
 import torch
 from torch.utils.data import DataLoader
@@ -44,7 +45,7 @@ def create_eval_dict(dataset):
     return eval_dict
 
 
-def eval(model, test_dataset, args, device):
+def eval(model, test_dataset, args, save_folder, device):
 
     model.eval()
     model.to(device)
@@ -86,8 +87,8 @@ def eval(model, test_dataset, args, device):
             for idx, prob in enumerate(actions_probs[0]):
                 action_log_prob[SIMMCDatasetForActionPrediction._LABEL2ACT[idx]] = torch.log(prob).item()
             attributes = {}
-            for arg in args_predictions:
-                attributes['attributes'] = SIMMCDatasetForActionPrediction._ARGS[arg]
+            #for arg in args_predictions:
+            attributes['attributes'] = [SIMMCDatasetForActionPrediction._ARGS[arg] for arg in args_predictions]
             
             eval_dict[dial_id]['predictions'][turn] = {'action': predicted_action, 
                                                         'action_log_prob': action_log_prob, 
@@ -96,9 +97,11 @@ def eval(model, test_dataset, args, device):
     eval_list = []
     for key in eval_dict:
         eval_list.append(eval_dict[key])
+    save_file = os.path.join(save_folder, 'eval_out.json')
     try:
-        with open('model_out2.json', 'w+') as fp:
+        with open(save_file, 'w+') as fp:
             json.dump(eval_list, fp)
+        print('results saved in {}'.format(save_file))
     except:
         pdb.set_trace()
 
@@ -182,4 +185,7 @@ if __name__ == '__main__':
                                 unk_token=TrainConfig._UNK_TOKEN)
     model.load_state_dict(torch.load(args.model))
 
-    eval(model, test_dataset, args, device)
+    model_folder = '/'.join(args.model.split('/')[:-1])
+    print('model loaded from {}'.format(model_folder))
+
+    eval(model, test_dataset, args, save_folder=model_folder, device=device)

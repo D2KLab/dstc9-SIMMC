@@ -73,20 +73,26 @@ class SIMMCDataset(Dataset):
 
 
     def __getitem__(self, index):
-        #todo return dialog id and turn number
+        # todo for the DSTC keep in mind that all the price values were set to 0 
+        # todo      --> need to have a mapping to the original prices for the slot detection
         dial_id, turn = self.transcripts[index].split('_')
         dial_id = int(dial_id)
         turn = int(turn)
-        if dial_id == 2117:
-            pdb.set_trace()
+
+        current_transcript = self.processed_turns[dial_id][turn]['transcript']
+        history = []
+        for t in range(turn):
+            qa = [self.processed_turns[dial_id][t]['transcript'], 
+                            self.processed_turns[dial_id][t]['system_transcript']]
+            history.append(qa)
+
         if isinstance(self, SIMMCDatasetForActionPrediction,):
             arguments = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:
                 arguments = self.id2act[dial_id][turn]['action_supervision']['attributes']
-            return dial_id, turn, \
-                    self.processed_turns[dial_id][turn]['transcript'], \
-                    self.id2act[dial_id][turn]['action'],\
-                    arguments
+            return dial_id, turn,\
+                    current_transcript, history,\
+                    self.id2act[dial_id][turn]['action'], arguments
 
 
     def create_index(self, raw_data):
@@ -210,7 +216,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
     def __getitem__(self, index):
 
-        dial_id, turn, transcript, action, arguments = super().__getitem__(index)
+        dial_id, turn, transcript, history, action, arguments = super().__getitem__(index)
 
         one_hot_args = [0]*(len(self._ARG2LABEL))
         for arg in arguments:
@@ -218,7 +224,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
             assert one_hot_args[self._ARG2LABEL[arg]] == 0, 'Argument \'{}\' is present multiple times'.format(arg)
             one_hot_args[self._ARG2LABEL[arg]] = 1
 
-        return dial_id, turn, transcript, self._ACT2LABEL[action], one_hot_args
+        return dial_id, turn, transcript, history, self._ACT2LABEL[action], one_hot_args
 
 
     def __len__(self):

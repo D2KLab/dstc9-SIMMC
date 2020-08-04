@@ -79,6 +79,7 @@ def train(train_dataset, dev_dataset, args, device):
     sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log'))
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
+    print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
 
     print('TRAINING DATASET: {}'.format(train_dataset))
     print('VALIDATION DATASET: {}'.format(dev_dataset))

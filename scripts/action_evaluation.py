@@ -16,7 +16,7 @@ flags.DEFINE_string(
     "action_json_path", "annotations/fashion_devtest_dials_api_calls.json", "Ground truth API calls"
 )
 flags.DEFINE_string(
-    "model_output_path", "model_out2.json", "Action API predictions by the model"
+    "model_output_path", "checkpoints/2020-08-04T15:10:15/eval_out.json", "Action API predictions by the model"
 )
 
 
@@ -46,7 +46,7 @@ def evaluate_action_prediction(gt_actions, model_actions):
         dialog_id = model_datum["dialog_id"]
         for round_id, round_datum in enumerate(model_datum["predictions"]):
             
-            pdb.set_trace()
+            #pdb.set_trace()
 
             gt_datum = gt_actions_pool[dialog_id]["actions"][round_id]
             action_match = gt_datum["action"] == round_datum["action"]
@@ -76,6 +76,12 @@ def evaluate_action_prediction(gt_actions, model_actions):
                     gt_key_vals = supervision[key]
                     model_key_vals = round_datum["attributes"][key]
                     if not len(gt_key_vals):
+                        """
+                        if not len(model_key_vals):
+                            matches['attributes'].append(1.0)
+                        else:
+                            matches['attributes'].append(0.)
+                        """
                         continue
                     # For fashion, this is a list -- multi label prediction.
                     if isinstance(gt_key_vals, list):
