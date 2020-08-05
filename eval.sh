@@ -1,7 +1,7 @@
 #/usr/bin/bash
 
-export MODEL=checkpoints/2020-08-04T15:10:15/state_dict.pt
-export VOCABULARY=checkpoints/2020-08-04T15:10:15/vocabulary.pkl
+export MODEL=checkpoints/2020-08-05T10:48:28/state_dict.pt
+export VOCABULARY=checkpoints/2020-08-05T10:48:28/vocabulary.pkl
 export DATASET_PATH=../simmc/data/simmc_fashion/fashion_devtest_dials.json
 export METADATA_PATH=../simmc/data/simmc_fashion/fashion_metadata.json
 export GLOVE_PATH=embeddings/glove.6B.300d.txt

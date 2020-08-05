@@ -182,7 +182,8 @@ if __name__ == '__main__':
                                 num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
                                 num_args=SIMMCFashionConfig._FASHION_ARGS_NO,
                                 pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN)
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED)
     model.load_state_dict(torch.load(args.model))
 
     model_folder = '/'.join(args.model.split('/')[:-1])

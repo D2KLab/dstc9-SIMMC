@@ -9,38 +9,19 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import torch.nn.functional as F
 
 
-_HIDDEN_SIZE = 300
 
-
-class BlindStatelessLSTM(nn.Module):
-    """Implementation of a blind and stateless LSTM for action prediction. It approximates the probability distribution:
-
-            P(a_t | U_t)
-    
-        Where a_t is the action and U_t the user utterance.
+class WordEmbeddingBasedNetwork(nn.Module):
+    """Base class for word embedding layer initialization and weights loading
 
     Args:
         torch (torch.nn.Module): inherits from torch.nn.Module
-
-    Attributes:
-        self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
     """
+    def __init__(self, embedding_path, word2id, pad_token, unk_token, OOV_corrections=False):
 
-    def __init__(self, embedding_path, word2id, num_actions, num_args, pad_token, unk_token, OOV_corrections=False):
-        """
-        Glove download: https://nlp.stanford.edu/projects/glove/
-
-        Args:
-            embedding_path ([type]): [description]
-        """
-
-        super(BlindStatelessLSTM, self).__init__()
-        #torch.manual_seed(seed) #TODO unique seed to replicate the experiment
-
+        super(WordEmbeddingBasedNetwork, self).__init__()
         self.pad_token = pad_token
         self.unk_token = unk_token
         self.corrected_flag = OOV_corrections
-        self.hidden_size = _HIDDEN_SIZE
         self.word2id = word2id
         self.embedding_file = embedding_path.split('/')[-1]
         self.load_embeddings_from_file(embedding_path)
@@ -51,43 +32,6 @@ class BlindStatelessLSTM(nn.Module):
         self.embedding_layer = nn.Embedding(num_embeddings, embedding_dim)
         self.embedding_layer.load_state_dict({'weight': embedding_weights})
 
-        self.lstm = nn.LSTM(self.embedding_size, self.hidden_size, batch_first=True)
-        self.dropout = nn.Dropout(p=0.5)
-        self.actions_linear = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
-        self.args_linear = nn.Linear(in_features=self.hidden_size, out_features=num_args)
-
-
-    def forward(self, batch, seq_lengths=None):
-        """Forward pass for BlindStatelessLSTM
-
-        Args:
-            batch (torch.LongTensor): Tensor containing the batch (shape=BxMAX_SEQ_LEN)
-            seq_lengths (torch.LongTensor, optional): Effective lengths (no pad) of each sequence in the batch. If given the pack_padded__sequence are used.
-                                                        The shape is B. Defaults to None.
-        """
-
-        embedded_seq_tensor = self.embedding_layer(batch)
-        if seq_lengths is not None:
-            # pack padded sequence
-            packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
-        
-        out1, (h_t, c_t) = self.lstm(packed_input)
-
-        """unpack not needed. We don't use the output
-        if seq_lengths is not None:
-            # unpack padded sequence
-            output, input_sizes = pad_packed_sequence(out1, batch_first=True)
-        """
-        h_t = self.dropout(h_t)
-        # h_t has shape NUM_DIRxBxHIDDEN_SIZE
-        actions_logits = self.actions_linear(h_t[0])
-        args_logits = self.args_linear(h_t[0])
-
-        #out2.shape = BxNUM_LABELS
-        actions_probs = F.softmax(actions_logits, dim=-1)
-        args_probs = torch.sigmoid(args_logits)
-        return actions_logits, args_logits, actions_probs, args_probs
-   
 
     def load_embeddings_from_file(self, embedding_path):
         self.glove = {}
@@ -145,6 +89,74 @@ class BlindStatelessLSTM(nn.Module):
         #print(oov)
         #print(corrections.values())
         return dataset_vocabulary
+        
+
+class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
+    """Implementation of a blind and stateless LSTM for action prediction. It approximates the probability distribution:
+
+            P(a_t | U_t)
+    
+        Where a_t is the action and U_t the user utterance.
+
+    Args:
+        torch (WordEmbeddingBasedNetwork): inherits from WordEmbeddingBasedNetwork
+
+    Attributes:
+        self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
+    """
+
+    _HIDDEN_SIZE = 300
+
+
+    def __init__(self, embedding_path, word2id, num_actions, num_args, pad_token, unk_token, seed, OOV_corrections=False):
+        """
+        Glove download: https://nlp.stanford.edu/projects/glove/
+
+        Args:
+            embedding_path ([type]): [description]
+        """
+
+        torch.manual_seed(seed)
+        super(BlindStatelessLSTM, self).__init__(embedding_path, word2id, pad_token, unk_token, OOV_corrections)
+
+        self.hidden_size = self._HIDDEN_SIZE
+
+        self.lstm = nn.LSTM(self.embedding_size, self.hidden_size, batch_first=True)
+        self.dropout = nn.Dropout(p=0.5)
+        self.actions_linear = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
+        self.args_linear = nn.Linear(in_features=self.hidden_size, out_features=num_args)
+
+
+    def forward(self, batch, seq_lengths=None):
+        """Forward pass for BlindStatelessLSTM
+
+        Args:
+            batch (torch.LongTensor): Tensor containing the batch (shape=BxMAX_SEQ_LEN)
+            seq_lengths (torch.LongTensor, optional): Effective lengths (no pad) of each sequence in the batch. If given the pack_padded__sequence are used.
+                                                        The shape is B. Defaults to None.
+        """
+
+        embedded_seq_tensor = self.embedding_layer(batch)
+        if seq_lengths is not None:
+            # pack padded sequence
+            packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
+        
+        out1, (h_t, c_t) = self.lstm(packed_input)
+
+        """unpack not needed. We don't use the output
+        if seq_lengths is not None:
+            # unpack padded sequence
+            output, input_sizes = pad_packed_sequence(out1, batch_first=True)
+        """
+        h_t = self.dropout(h_t)
+        # h_t has shape NUM_DIRxBxHIDDEN_SIZE
+        actions_logits = self.actions_linear(h_t[0])
+        args_logits = self.args_linear(h_t[0])
+
+        #out2.shape = BxNUM_LABELS
+        actions_probs = F.softmax(actions_logits, dim=-1)
+        args_probs = torch.sigmoid(args_logits)
+        return actions_logits, args_logits, actions_probs, args_probs
 
 
     def collate_fn(self, batch):

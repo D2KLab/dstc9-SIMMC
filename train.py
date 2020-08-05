@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from models import BlindStatelessLSTM
+from models import BlindStatelessLSTM, BlindStatefulLSTM
 from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction,
                    SIMMCFashionConfig, TrainConfig, plotting_loss,
                    Logger)
@@ -41,14 +41,14 @@ def plotting(epochs, losses_trend, checkpoint_dir):
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Arguments loss trend', x_label='epochs', y_label='loss')
 
 
-def forward_step(model, batch, actions_targets, args_targets, device, actions_criterion, args_criterion, seq_lengths=None):
+def forward_step(model, batch, history, actions_targets, args_targets, device, actions_criterion, args_criterion, seq_lengths=None):
 
     batch = batch.to(device)
     actions_targets = actions_targets.to(device)
     args_targets = args_targets.to(device)
     seq_lengths =  seq_lengths.to(device)
 
-    actions_logits, args_logits, actions_probs, args_probs = model(batch, seq_lengths)
+    actions_logits, args_logits, actions_probs, args_probs = model(batch, history, seq_lengths, device=device)
 
     actions_loss = actions_criterion(actions_logits, actions_targets)
     args_targets = args_targets.type_as(actions_logits)
@@ -97,19 +97,20 @@ def train(train_dataset, dev_dataset, args, device):
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = BlindStatelessLSTM(args.embeddings, 
+    model = BlindStatefulLSTM(args.embeddings, 
                                 word2id=word2id, 
                                 OOV_corrections=False, 
                                 num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
                                 num_args=SIMMCFashionConfig._FASHION_ARGS_NO,
                                 pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN)
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED)
     model.to(device)
     print('MODEL: {}'.format(model))
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True,
+            'shuffle': False, #todo set to True
             'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
@@ -130,8 +131,10 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = {'global': [], 'actions': [], 'args': []}
 
-        for curr_step, (dial_ids, turns, batch, seq_lengths, actions, args) in enumerate(trainloader):
-            actions_loss, args_loss, _, _ = forward_step(model, batch, 
+        for curr_step, (dial_ids, turns, batch, seq_lengths, history, actions, args) in enumerate(trainloader):
+
+            actions_loss, args_loss, _, _ = forward_step(model, batch,
+                                        history=history,
                                         actions_targets=actions, 
                                         args_targets=args,
                                         actions_criterion=actions_criterion,
@@ -154,15 +157,16 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = {'global': [], 'actions': [], 'args': []}
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, seq_lengths, actions, args) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, seq_lengths, history, actions, args) in enumerate(devloader):
 
-                actions_loss, args_loss, _, _ = forward_step(model, batch, 
-                                                                    actions_targets=actions, 
-                                                                    args_targets=args,
-                                                                    actions_criterion=actions_criterion,
-                                                                    args_criterion=args_criterion,
-                                                                    seq_lengths=seq_lengths,
-                                                                    device=device)
+                actions_loss, args_loss, _, _ = forward_step(model, batch,
+                                                            history=history,
+                                                            actions_targets=actions, 
+                                                            args_targets=args,
+                                                            actions_criterion=actions_criterion,
+                                                            args_criterion=args_criterion,
+                                                            seq_lengths=seq_lengths,
+                                                            device=device)
                 loss = (actions_loss + args_loss)/2
 
                 curr_epoch_losses['global'].append(loss.item())

@@ -16,7 +16,7 @@ flags.DEFINE_string(
     "action_json_path", "annotations/fashion_devtest_dials_api_calls.json", "Ground truth API calls"
 )
 flags.DEFINE_string(
-    "model_output_path", "checkpoints/2020-08-04T15:10:15/eval_out.json", "Action API predictions by the model"
+    "model_output_path", "checkpoints/2020-08-05T10:48:28/eval_out.json", "Action API predictions by the model"
 )
 
 

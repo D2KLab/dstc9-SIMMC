@@ -9,11 +9,11 @@ export EVAL_ACTIONS_PATH=annotations/fashion_dev_dials_api_calls.json
 
 
 python train.py \
-        --data  $DATASET_PATH\
-        --metadata  $METADATA_PATH\
+        --data $DATASET_PATH\
+        --metadata $METADATA_PATH\
         --eval $EVAL_PATH\
         --embeddings $GLOVE_PATH\
         --actions $ACTIONS_PATH\
         --eval_actions $EVAL_ACTIONS_PATH\
-        --batch_size 1\
+        --batch_size 4\
         --cuda 0
