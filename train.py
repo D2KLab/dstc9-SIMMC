@@ -96,7 +96,7 @@ def train(train_dataset, dev_dataset, args, device):
     torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
-    # prepare moel
+    # prepare model
     model = BlindStatelessLSTM(args.embeddings, 
                                 word2id=word2id, 
                                 OOV_corrections=False, 
