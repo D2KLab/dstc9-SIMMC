@@ -2,6 +2,7 @@ import pdb
 
 import torch
 from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from . import WordEmbeddingBasedNetwork
 
@@ -22,7 +23,8 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         self.memory_hidden_size = self._HIDDEN_SIZE
 
         #history encoder
-        self.history_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True)
+        self.history_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
+        self.utterance_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
         #utterance encoder
         #cross-history attention
         #utterance self-attention
@@ -36,28 +38,48 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
 
     def forward(self, batch, history, seq_lengths=None, device='cpu'):
 
+        # memory bank is a list of BATCH_SIZE tensors, each of them having shape N_TURNSx2MEMORY_HIDDEN_SIZE
         memory_bank = self.encode_history(history, device)
+        # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
+        u_t = self.encode_utterance(batch, seq_lengths)
+
+        assert u_t.shape[0] == len(memory_bank), 'Batch size and memory size does not match'
         pdb.set_trace()
 
 
     def encode_history(self, history, device):
+        #todo turn embedding based on previous turns (hierarchical recurrent encoder - HRE)
         encoded_batch_history = []
         for dial in history:
-            #todo check correct dimensionality
             hiddens = []
             for turn in dial:
                 emb = self.embedding_layer(turn.unsqueeze(0).to(device))
+                # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
                 out, (h_t, c_t) = self.history_encoder(emb)
-                hiddens.append(h_t)
+                bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
+                hiddens.append(bidirectional_h_t.squeeze(0))
             if len(hiddens) > 0:
-                pdb.set_trace()
-                encoded_batch_history.append(torch.stack(hiddens.squeeze(0)))
+                encoded_batch_history.append(torch.stack(hiddens))
             else:
                 encoded_batch_history.append([])
         return encoded_batch_history
 
 
+    def encode_utterance(self, batch, seq_lengths):
+        embedded_seq_tensor = self.embedding_layer(batch)
+        if seq_lengths is not None:
+            # pack padded sequence
+            packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
+        
+        out1, (h_t, c_t) = self.utterance_encoder(packed_input)
+        bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
 
+        """unpack not needed. We don't use the output
+        if seq_lengths is not None:
+            # unpack padded sequence
+            output, input_sizes = pad_packed_sequence(out1, batch_first=True)
+        """
+        return bidirectional_h_t
 
 
     def collate_fn(self, batch):
