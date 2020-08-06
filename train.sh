@@ -15,5 +15,6 @@ python train.py \
         --embeddings $GLOVE_PATH\
         --actions $ACTIONS_PATH\
         --eval_actions $EVAL_ACTIONS_PATH\
-        --batch_size 4\
+        --batch_size 32\
+        --epochs 10\
         --cuda 0
