@@ -116,10 +116,16 @@ def train(train_dataset, dev_dataset, args, device):
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
-    #prepare loss and optimizer
-    actions_criterion = torch.nn.CrossEntropyLoss().to(device) #? set weights based on dataset balancing
-    attributes_criterion = torch.nn.BCEWithLogitsLoss().to(device)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY) #? weight_decay=0.1
+    #prepare loss weights
+    act_per_class, act_tot_support = train_dataset.act_support['per_class_frequency'], train_dataset.act_support['tot_samples']
+    attr_per_class, attr_tot_support = train_dataset.attr_support['per_class_frequency'], train_dataset.attr_support['tot_samples']
+    #weights computed as negative_samples/positive_samples
+    ce_weights = torch.tensor([(act_tot_support-class_support)/class_support for class_support in act_per_class])
+    bce_weights = torch.tensor([(attr_tot_support-class_support)/class_support for class_support in attr_per_class])
+    #prepare losses and optimizer
+    actions_criterion = torch.nn.CrossEntropyLoss().to(device)
+    attributes_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(10.)).to(device)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = [2,5,8,15], gamma = 0.5) #todo try with gamma=.1
 
     #prepare containers for statistics

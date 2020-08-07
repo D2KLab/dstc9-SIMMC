@@ -250,10 +250,30 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
             assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
                 'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
 
-        """check frequency for actions
-        act_tmp = {'None': 0,'SearchDatabase': 0, 'SearchMemory': 0, 'SpecifyInfo': 0, 'AddToCart': 0}
+        #compute frequency for actions
+        act_freq = [0]*5
+        freq_sum = 0
         for dial_id in self.ids:
             for act in self.id2act[dial_id]:
-                act_tmp[act['action']] += 1
-        pdb.set_trace()
+                act_freq[self._ACT2LABEL[act['action']]] += 1
+                freq_sum += 1
+        self.act_support = {'per_class_frequency': act_freq, 'tot_samples': freq_sum}
+
+        #compute frequency for attributes
+        attr_freq = [0] * 33
+        freq_sum = 0
+        for dial_id in self.ids:
+            for act in self.id2act[dial_id]:
+                if act['action_supervision'] != None:
+                    for attr in act['action_supervision']['attributes']:
+                        attr_freq[self._ATTR2LABEL[attr]] += 1
+                        freq_sum += 1
+        self.attr_support = {'per_class_frequency': attr_freq, 'tot_samples': freq_sum}
+
+        """freq_sum = 0
+        for idx, freq in enumerate(attr_freq):
+            print('{}: {}'.format(self._ATTRS[idx], freq))
+            freq_sum += freq
+        print('Total support sum: {}'.format(freq_sum))
         """
+        
