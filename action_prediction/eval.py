@@ -6,9 +6,8 @@ import pdb
 import torch
 from torch.utils.data import DataLoader
 
-from models import BlindStatelessLSTM
-from tools import (SIMMCDatasetForActionPrediction, SIMMCFashionConfig,
-                   TrainConfig, plotting_loss)
+from models import BlindStatelessLSTM, BlindStatefulLSTM
+from tools import (SIMMCDatasetForActionPrediction, plotting_loss, TrainConfig, SIMMCFashionConfig)
 
 """expected form for model output
     [
@@ -34,7 +33,7 @@ from tools import (SIMMCDatasetForActionPrediction, SIMMCFashionConfig,
 """
 
 id2act = SIMMCDatasetForActionPrediction._LABEL2ACT
-id2arg = SIMMCDatasetForActionPrediction._ARGS
+id2attrs = SIMMCDatasetForActionPrediction._ATTRS
 
 
 def create_eval_dict(dataset):
@@ -59,28 +58,28 @@ def eval(model, test_dataset, args, save_folder, device):
 
     eval_dict = create_eval_dict(test_dataset)
     with torch.no_grad():
-        for curr_step, (dial_ids, turns, batch, seq_lengths, actions, args) in enumerate(testloader):
+        for curr_step, (dial_ids, turns, batch, seq_lengths, history, actions, attributes) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
             dial_id = dial_ids[0]
             turn = turns[0]
 
             batch = batch.to(device)
             actions = actions.to(device)
-            args = args.to(device)
+            attributes = attributes.to(device)
 
-            actions_out, args_out, actions_probs, args_probs = model(batch, seq_lengths)
+            actions_out, attributes_out, actions_probs, attributes_probs = model(batch, history, seq_lengths, device=device)
 
             #get predicted action and arguments
             actions_predictions = torch.argmax(actions_probs, dim=-1)
-            args_predictions = []
-            for batch_idx, t in enumerate(args_probs):
-                args_predictions.append([])
+            attributes_predictions = []
+            for batch_idx, t in enumerate(attributes_probs):
+                attributes_predictions.append([])
                 for pos, val in enumerate(t):
                     if val >= .5:
-                        args_predictions[batch_idx].append(pos)
+                        attributes_predictions[batch_idx].append(pos)
 
             actions_predictions = actions_predictions[0].item()
-            args_predictions = args_predictions[0]
+            attributes_predictions = attributes_predictions[0]
 
             predicted_action = SIMMCDatasetForActionPrediction._LABEL2ACT[actions_predictions]
             action_log_prob = {}
@@ -88,7 +87,7 @@ def eval(model, test_dataset, args, save_folder, device):
                 action_log_prob[SIMMCDatasetForActionPrediction._LABEL2ACT[idx]] = torch.log(prob).item()
             attributes = {}
             #for arg in args_predictions:
-            attributes['attributes'] = [SIMMCDatasetForActionPrediction._ARGS[arg] for arg in args_predictions]
+            attributes['attributes'] = [SIMMCDatasetForActionPrediction._ATTRS[attr] for attr in attributes_predictions]
             
             eval_dict[dial_id]['predictions'][turn] = {'action': predicted_action, 
                                                         'action_log_prob': action_log_prob, 
@@ -176,11 +175,11 @@ if __name__ == '__main__':
 
     word2id = torch.load(args.vocabulary)
 
-    model = BlindStatelessLSTM(args.embeddings, 
+    model = BlindStatefulLSTM(args.embeddings, 
                                 word2id=word2id, 
                                 OOV_corrections=False, 
                                 num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_args=SIMMCFashionConfig._FASHION_ARGS_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED)

@@ -10,9 +10,8 @@ import torch
 from torch.utils.data import DataLoader
 
 from models import BlindStatelessLSTM, BlindStatefulLSTM
-from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction,
-                   SIMMCFashionConfig, TrainConfig, plotting_loss,
-                   Logger)
+from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction, plotting_loss,
+                   TrainConfig, SIMMCFashionConfig, Logger)
 
 import os
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -80,6 +79,7 @@ def train(train_dataset, dev_dataset, args, device):
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
+    print('weight decay: {}'.format(TrainConfig._WEIGHT_DECAY))
 
     print('TRAINING DATASET: {}'.format(train_dataset))
     print('VALIDATION DATASET: {}'.format(dev_dataset))
@@ -119,7 +119,8 @@ def train(train_dataset, dev_dataset, args, device):
     #prepare loss and optimizer
     actions_criterion = torch.nn.CrossEntropyLoss().to(device) #? set weights based on dataset balancing
     attributes_criterion = torch.nn.BCEWithLogitsLoss().to(device)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE) #? weight_decay=0.1
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY) #? weight_decay=0.1
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = [2,5,8,15], gamma = 0.5) #todo try with gamma=.1
 
     #prepare containers for statistics
     losses_trend = {'train': {'global':[], 'actions': [], 'attributes': []}, 
@@ -183,8 +184,13 @@ def train(train_dataset, dev_dataset, args, device):
                        os.path.join(checkpoint_dir, 'state_dict.pt'))
             model.to(device)
         
-        print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f}'
-                            .format(epoch+1, losses_trend['train']['global'][-1], losses_trend['dev']['global'][-1]))
+        print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f} [act_loss={:.4f}, attr_loss={:.4f}]; (lr={})'
+                            .format(epoch+1, losses_trend['train']['global'][-1], 
+                                    losses_trend['dev']['global'][-1],
+                                    losses_trend['dev']['actions'][-1],
+                                    losses_trend['dev']['attributes'][-1],
+                                    optimizer.param_groups[0]['lr']))
+        scheduler.step()
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60

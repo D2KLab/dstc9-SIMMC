@@ -13,10 +13,10 @@ import numpy as np
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
-    "action_json_path", "annotations/fashion_devtest_dials_api_calls.json", "Ground truth API calls"
+    "action_json_path", "action_prediction/action_annotations/fashion_devtest_dials_api_calls.json", "Ground truth API calls"
 )
 flags.DEFINE_string(
-    "model_output_path", "checkpoints/2020-08-05T10:48:28/eval_out.json", "Action API predictions by the model"
+    "model_output_path", "action_prediction/checkpoints/2020-08-07T13:14:59/eval_out.json", "Action API predictions by the model"
 )
 
 

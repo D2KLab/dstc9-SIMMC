@@ -87,12 +87,12 @@ class SIMMCDataset(Dataset):
             history.append(qa)
 
         if isinstance(self, SIMMCDatasetForActionPrediction,):
-            arguments = []
+            attributes = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:
-                arguments = self.id2act[dial_id][turn]['action_supervision']['attributes']
+                attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
             return dial_id, turn,\
                     current_transcript, history,\
-                    self.id2act[dial_id][turn]['action'], arguments
+                    self.id2act[dial_id][turn]['action'], attributes
 
 
     def create_index(self, raw_data):
@@ -195,12 +195,12 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
     _ACT2LABEL = {'None': 0,'SearchDatabase': 1, 'SearchMemory': 2, 'SpecifyInfo': 3, 'AddToCart': 4}
     _LABEL2ACT = ['None','SearchDatabase', 'SearchMemory', 'SpecifyInfo', 'AddToCart']
-    _ARG2LABEL = {'embellishment': 0, 'skirtStyle': 1, 'availableSizes': 2, 'dressStyle': 3, 'material': 4, 'clothingStyle': 5, 'jacketStyle': 6, 
+    _ATTR2LABEL = {'embellishment': 0, 'skirtStyle': 1, 'availableSizes': 2, 'dressStyle': 3, 'material': 4, 'clothingStyle': 5, 'jacketStyle': 6, 
                     'sleeveLength': 7, 'soldBy': 8, 'price': 9, 'ageRange': 10, 'hemLength': 11, 'size': 12, 'warmthRating': 13, 'sweaterStyle': 14, 
                     'forGender': 15, 'madeIn': 16, 'info': 17, 'customerRating': 18, 'hemStyle': 19, 'hasPart': 20, 'pattern': 21, 'clothingCategory': 22, 
                     'forOccasion': 23, 'waistStyle': 24, 'sleeveStyle': 25, 'amountInStock': 26, 'waterResistance': 27, 'necklineStyle': 28, 'skirtLength': 29, 
                     'color': 30, 'brand': 31, 'sequential': 32}
-    _ARGS = ['embellishment', 'skirtStyle', 'availableSizes', 'dressStyle', 'material', 'clothingStyle', 'jacketStyle', 
+    _ATTRS = ['embellishment', 'skirtStyle', 'availableSizes', 'dressStyle', 'material', 'clothingStyle', 'jacketStyle', 
                     'sleeveLength', 'soldBy', 'price', 'ageRange', 'hemLength', 'size', 'warmthRating', 'sweaterStyle', 
                     'forGender', 'madeIn', 'info', 'customerRating', 'hemStyle', 'hasPart', 'pattern', 'clothingCategory', 
                     'forOccasion', 'waistStyle', 'sleeveStyle', 'amountInStock', 'waterResistance', 'necklineStyle', 'skirtLength', 
@@ -216,15 +216,15 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
     def __getitem__(self, index):
 
-        dial_id, turn, transcript, history, action, arguments = super().__getitem__(index)
+        dial_id, turn, transcript, history, action, attributes = super().__getitem__(index)
 
-        one_hot_args = [0]*(len(self._ARG2LABEL))
-        for arg in arguments:
-            assert arg in self._ARG2LABEL, 'Unkown argument \'{}\''.format(arg)
-            assert one_hot_args[self._ARG2LABEL[arg]] == 0, 'Argument \'{}\' is present multiple times'.format(arg)
-            one_hot_args[self._ARG2LABEL[arg]] = 1
+        one_hot_attrs = [0]*(len(self._ATTR2LABEL))
+        for attr in attributes:
+            assert attr in self._ATTR2LABEL, 'Unkown attribute \'{}\''.format(attr)
+            assert one_hot_attrs[self._ATTR2LABEL[attr]] == 0, 'Attribute \'{}\' is present multiple times'.format(attr)
+            one_hot_attrs[self._ATTR2LABEL[attr]] = 1
 
-        return dial_id, turn, transcript, history, self._ACT2LABEL[action], one_hot_args
+        return dial_id, turn, transcript, history, self._ACT2LABEL[action], one_hot_attrs
 
 
     def __len__(self):
