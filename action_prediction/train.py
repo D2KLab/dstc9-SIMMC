@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from models import BlindStatelessLSTM, BlindStatefulLSTM
 from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction, plotting_loss,
-                   TrainConfig, SIMMCFashionConfig, Logger)
+                   TrainConfig, SIMMCFashionConfig, Logger, print_annotation_dialogue)
 
 import os
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -69,6 +69,8 @@ def forward_step(model, batch, history, actions_targets, attributes_targets, dev
 
 
 def train(train_dataset, dev_dataset, args, device):
+    #print_annotation_dialogue(train_dataset.id2dialog[822]['dialogue'], None)
+    #pdb.set_trace()
 
     # prepare checkpoint folder
     curr_date = datetime.datetime.now().isoformat().split('.')[0]

@@ -1,3 +1,6 @@
+id: 3094
+
+
 +U0: ["Is there a pattern on this one? It's hard to see in the image."]
 +A0: ["I don't have any information on the pattern, but it has pointelle embellishments."]
 ------- Annotations: turn0--------
@@ -44,9 +47,12 @@
 +transcript_annotated["[{'intent': 'DA:INFORM:PREFER:SWEATER', 'slots': [{'id': 'USER.attentionOn', 'span': {'start': 11, 'end': 15}, 'text': 'that', 'node_id': 6}], 'span': {'start': 0, 'end': 16}, 'node_id': 4}, {'intent': 'DA:ASK:CHECK:SWEATER.availableSizes', 'slots': [{'id': '.check', 'span': {'start': 26, 'end': 31}, 'text': 'small', 'node_id': 7}], 'span': {'start': 0, 'end': 32}, 'node_id': 5}]"]
 +system_transcript_annotated["[{'intent': 'DA:INFORM:CHECK:SWEATER.availableSizes', 'slots': [{'id': '.check', 'span': {'start': 16, 'end': 21}, 'text': 'small', 'node_id': 6}], 'span': {'start': 0, 'end': 22}, 'node_id': 4}, {'intent': 'DA:PROMPT:ADD_TO_CART:SWEATER', 'slots': [], 'span': {'start': 0, 'end': 29}, 'node_id': 5}]"]
 +turn_label[{'act': ['DA:INFORM:PREFER:SWEATER'], 'objects': [{'obj_idx': tensor([1]), 'obj_name': ['OBJECT_1'], 'obj_type': ['SWEATER']}], 'slots': [[('USER.attentionOn',), ('that',)]]}, {'act': ['DA:ASK:CHECK:SWEATER.availableSizes'], 'objects': [{'obj_idx': tensor([1]), 'obj_name': ['OBJECT_1'], 'obj_type': ['SWEATER']}], 'slots': [[('.check',), ('small',)]]}]
-+state_graph_0:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 'OBJECT_1': {'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
-+state_graph_1:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
-+state_graph_2:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
++state_graph_0:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 
+                'OBJECT_1': {'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
++state_graph_1:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 
+                'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
++state_graph_2:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 
+                'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
 -------------------------------
 
 
@@ -57,7 +63,96 @@
 +transcript_annotated["[{'intent': 'DA:REQUEST:ADD_TO_CART:SWEATER', 'slots': [], 'span': {'start': 0, 'end': 46}, 'node_id': 1}]"]
 +system_transcript_annotated["[{'intent': 'ERR:CHITCHAT', 'slots': [], 'span': {'start': 0, 'end': 12}, 'node_id': 1}]"]
 +turn_label[{'act': ['DA:REQUEST:ADD_TO_CART:SWEATER'], 'objects': [{'obj_idx': tensor([1]), 'obj_name': ['OBJECT_1'], 'obj_type': ['SWEATER']}], 'slots': []}]
-+state_graph_0:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
-+state_graph_1:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
-+state_graph_2:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
++state_graph_0:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 
+                'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
++state_graph_1:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 
+                'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
++state_graph_2:{'OBJECT_0': {'color': [('white',)], 'embellishment': ['pointelle'], 'embellishments': [('pointelle',)], 'pos': ['focus'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('duster',), ('kimono',), ('loose',), ('crochet',)], 'type': ['sweater']}, 
+                'OBJECT_1': {'PREFER by': ['USER'], 'brand': ['Downtown Stylists'], 'color': [('red',), ('brown',), ('orange',)], 'customerRating': ['3.62'], 'necklineStyle': [('crew_neck',)], 'pos': ['focus'], 'price': ['$187'], 'sleeveStyle': [('long_sleeve',)], 'sweaterStyle': [('geometric',)], 'type': ['sweater']}}
+-------------------------------
+
+
+
+
+
+
+
+
+id: 822
+
+
+
+
++U0: How nice! Does this come in other colors?
++A0: No, I'm sorry, It comes only in blue.
+------- Annotations: turn0--------
++belief_state:[{'act': 'DA:INFORM:PREFER:CLOTHING', 'slots': [['fashion-O', 'OBJECT_0']]}, {'act': 'DA:ASK:CHECK:CLOTHING.color', 'slots': [['fashion-O', 'OBJECT_0'], ['fashion-attentionOn', 'this'], ['fashion-check', 'other']]}]
++transcript_annotated[{'intent': 'DA:INFORM:PREFER:CLOTHING', 'slots': [], 'span': {'start': 0, 'end': 9}, 'node_id': 4}, {'intent': 'DA:ASK:CHECK:CLOTHING.color', 'slots': [{'id': 'USER.attentionOn', 'span': {'start': 5, 'end': 9}, 'text': 'this', 'node_id': 6}, {'id': '.check', 'span': {'start': 18, 'end': 23}, 'text': 'other', 'node_id': 7}], 'span': {'start': 0, 'end': 31}, 'node_id': 5}]
++system_transcript_annotated[{'intent': 'DA:INFORM:CHECK:CLOTHING.color', 'slots': [{'id': '.check', 'span': {'start': 32, 'end': 36}, 'text': 'blue', 'node_id': 2}], 'span': {'start': 0, 'end': 37}, 'node_id': 1}]
++turn_label[{'act': 'DA:INFORM:PREFER:CLOTHING', 'objects': [{'obj_idx': 0, 'obj_name': 'OBJECT_0', 'obj_type': 'CLOTHING'}], 'slots': []}, {'act': 'DA:ASK:CHECK:CLOTHING.color', 'objects': [{'obj_idx': 0, 'obj_name': 'OBJECT_0', 'obj_type': 'CLOTHING'}], 'slots': [['USER.attentionOn', 'this'], ['.check', 'other']]}]
++state_graph_0:{'OBJECT_0': {'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}}
++state_graph_1:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}}
++state_graph_2:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}}
+-------------------------------
+
+
++U1: Oh well.  Can you show me a dress that comes in red?
++A1: This dress comes in many colors, including a bright red and a pinkish-red. What do you think?
+------- Annotations: turn1--------
++belief_state:[{'act': 'DA:REQUEST:GET:CLOTHING', 'slots': [['fashion-color', 'red']]}]
++transcript_annotated[{'intent': 'DA:REQUEST:GET:DRESS', 'slots': [{'id': 'O.color', 'span': {'start': 48, 'end': 51}, 'text': 'red', 'node_id': 2}], 'span': {'start': 0, 'end': 52}, 'node_id': 1}]
++system_transcript_annotated[{'intent': 'DA:INFORM:GET:DRESS', 'slots': [{'id': 'O.color', 'span': {'start': 45, 'end': 55}, 'text': 'bright red', 'node_id': 6}, {'id': 'O.color', 'span': {'start': 62, 'end': 73}, 'text': 'pinkish-red', 'node_id': 7}], 'span': {'start': 0, 'end': 74}, 'node_id': 4}, {'intent': 'DA:REQUEST:PREFER:DRESS', 'slots': [], 'span': {'start': 0, 'end': 18}, 'node_id': 5}]
++turn_label[{'act': 'DA:REQUEST:GET:DRESS', 'objects': [], 'slots': [['O.color', 'red']]}]
++state_graph_0:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}}
++state_graph_1:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}}
++state_graph_2:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
+-------------------------------
+
+
++U2: Cute! Do these come in Small?
++A2: Yes, they do!
+------- Annotations: turn2--------
++belief_state:[{'act': 'DA:INFORM:PREFER:CLOTHING', 'slots': [['fashion-O', 'OBJECT_1']]}, {'act': 'DA:ASK:CHECK:CLOTHING.availableSizes', 'slots': [['fashion-O', 'OBJECT_1'], ['fashion-attentionOn', 'these'], ['fashion-check', 'Small']]}]
++transcript_annotated[{'intent': 'DA:INFORM:PREFER:DRESS', 'slots': [], 'span': {'start': 0, 'end': 5}, 'node_id': 4}, {'intent': 'DA:ASK:CHECK:DRESS.availableSizes', 'slots': [{'id': 'USER.attentionOn', 'span': {'start': 3, 'end': 8}, 'text': 'these', 'node_id': 6}, {'id': '.check', 'span': {'start': 17, 'end': 22}, 'text': 'Small', 'node_id': 7}], 'span': {'start': 0, 'end': 23}, 'node_id': 5}]
++system_transcript_annotated[{'intent': 'DA:INFORM:CHECK:DRESS.availableSizes', 'slots': [], 'span': {'start': 0, 'end': 13}, 'node_id': 1}]
++turn_label[{'act': 'DA:INFORM:PREFER:DRESS', 'objects': [{'obj_idx': 1, 'obj_name': 'OBJECT_1', 'obj_type': 'DRESS'}], 'slots': []}, {'act': 'DA:ASK:CHECK:DRESS.availableSizes', 'objects': [{'obj_idx': 1, 'obj_name': 'OBJECT_1', 'obj_type': 'DRESS'}], 'slots': [['USER.attentionOn', 'these'], ['.check', 'Small']]}]
++state_graph_0:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
++state_graph_1:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
++state_graph_2:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
+-------------------------------
+
+
++U3: Awesome. Would you add a red one in S to my cart please?
++A3: The red one is in your cart. Is there anything else I can find for you?
+------- Annotations: turn3--------
++belief_state:[{'act': 'DA:REQUEST:GET:CLOTHING.availableSizes', 'slots': [['fashion-O', 'OBJECT_1'], ['fashion-color', 'red'], ['fashion-size', 'S']]}]
++transcript_annotated[{'intent': 'DA:REQUEST:GET:DRESS.availableSizes', 'slots': [{'id': 'O.color', 'span': {'start': 25, 'end': 28}, 'text': 'red', 'node_id': 2}, {'id': 'O.size', 'span': {'start': 36, 'end': 37}, 'text': 'S', 'subframe': {'utterance': 'S', 'domain': '', 'intent': '.alphabeticSize', 'slots': [], 'span': {'start': 0, 'end': 1}, 'node_id': 4}, 'node_id': 3}], 'span': {'start': 0, 'end': 56}, 'node_id': 1}]
++system_transcript_annotated[{'intent': 'DA:INFORM:ADD_TO_CART:DRESS', 'slots': [{'id': 'O.color', 'span': {'start': 4, 'end': 7}, 'text': 'red', 'node_id': 6}], 'span': {'start': 0, 'end': 28}, 'node_id': 4}, {'intent': 'DA:PROMPT:GET:CLOTHING', 'slots': [], 'span': {'start': 0, 'end': 42}, 'node_id': 5}]
++turn_label[{'act': 'DA:REQUEST:GET:DRESS.availableSizes', 'objects': [{'obj_idx': 1, 'obj_name': 'OBJECT_1', 'obj_type': 'DRESS'}], 'slots': [['O.color', 'red'], ['O.size', 'S']]}]
++state_graph_0:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
++state_graph_1:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
++state_graph_2:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'ADD_TO_CART by': 'USER', 'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
+-------------------------------
+
+
++U4: That's all. Thanks!
++A4: You're welcome. Enjoy the dress!
+------- Annotations: turn4--------
++belief_state:[{'act': 'ERR:CHITCHAT', 'slots': []}]
++transcript_annotated[{'intent': 'ERR:CHITCHAT', 'slots': [], 'span': {'start': 0, 'end': 19}, 'node_id': 1}]
++system_transcript_annotated[{'intent': 'ERR:CHITCHAT', 'slots': [], 'span': {'start': 0, 'end': 32}, 'node_id': 1}]
++turn_label[{'act': 'ERR:CHITCHAT', 'objects': [], 'slots': []}]
++state_graph_0:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'ADD_TO_CART by': 'USER', 'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
++state_graph_1:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'ADD_TO_CART by': 'USER', 'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
++state_graph_2:{'OBJECT_0': {'PREFER by': 'USER', 'color': ['blue'], 'dressStyle': ['column'], 'embellishments': ['pleated', 'ruched'], 'hemLength': ['maxi'], 'necklineStyle': ['sweetheart'], 'pos': 'focus', 'sleeveStyle': ['three-quarter_sleeveStyle'], 'type': 'dress'}, 
+                'OBJECT_1': {'ADD_TO_CART by': 'USER', 'PREFER by': 'USER', 'color': ['beige', 'red', 'ivory', 'blue', 'black', 'pink'], 'dressStyle': ['a_line'], 'embellishments': ['pleated', 'ribbon', 'mesh', 'sequined'], 'hemStyle': ['circle_skirt'], 'necklineStyle': ['jewel_necklineStyle', 'crew_neck'], 'pos': 'focus', 'type': 'dress', 'waistStyle': ['empire']}}
 -------------------------------

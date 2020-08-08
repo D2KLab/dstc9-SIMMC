@@ -44,7 +44,7 @@ class SIMMCDataset(Dataset):
 
         Args:
             path (str): path to dataset json file
-            metadata_path (str): path to metadata json file file
+            metadata_path (str): path to metadata json file
         """
         data_fp = open(data_path)
         raw_data = json.load(data_fp)

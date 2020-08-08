@@ -37,7 +37,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
                                                     nn.Tanh(),
                                                     nn.Dropout(p=.5),
                                                     nn.Linear(4*self.memory_hidden_size, 1),
-                                                    nn.Dropout(p=.5)) #todo dropout after tanh
+                                                    nn.Dropout(p=.5)) #todo introduce layerNorm
         self.linear_act_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
                                                     nn.Dropout(p=.5),
                                                     nn.ReLU())
