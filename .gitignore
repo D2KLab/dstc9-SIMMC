@@ -12,5 +12,8 @@ __pycache__
 #embeddings
 glove.*
 
+#tensors
+*.npy
+
 #checkpoint
 checkpoints
