@@ -1,5 +1,0 @@
-{"dataset": "fashion", "api_values": ["SearchDatabase", "SpecifyInfo", "SearchMemory", "AddToCart", "None"],
-"arguments_values": ["embellishment", "skirtStyle", "availableSizes", "dressStyle", "material", "clothingStyle", 
-    "jacketStyle", "sleeveLength", "soldBy", "price", "ageRange", "hemLength", "size", "warmthRating", "sweaterStyle", 
-    "forGender", "madeIn", "info", "customerRating", "hemStyle", "hasPart", "pattern", "clothingCategory", "forOccasion", 
-    "waistStyle", "sleeveStyle", "amountInStock", "waterResistance", "necklineStyle", "skirtLength", "color", "brand", "sequential"]}

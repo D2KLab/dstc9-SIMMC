@@ -213,6 +213,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
         history = [item[3] for item in batch]
+        visual_context = [item[4] for item in batch]
         actions = torch.tensor([item[5] for item in batch])
         attributes = torch.tensor([item[6] for item in batch])
 
@@ -255,7 +256,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         attributes = attributes[perm_idx]
 
         # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, seq_tensor, seq_lengths, history_seq_ids, actions, attributes
+        return dial_ids, turns, seq_tensor, seq_lengths, history_seq_ids, visual_context, actions, attributes
 
 
     def __str__(self):

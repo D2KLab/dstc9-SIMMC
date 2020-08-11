@@ -68,6 +68,26 @@ class SIMMCDataset(Dataset):
         self.create_vocabulary()
 
 
+    def extract_visual_object(self, dial_id, turn, placeh2id):
+        """Returns the visual object id and placeholder for a given turn and dialogue
+
+        Args:
+            dial_id (int): dialogue id
+            turn (int): turn's number
+            placeh2id (dict): dictionary from placeholder to object id
+
+        Returns:
+            tuple: (object_id, placeholder)
+        """
+        visual_object = self.id2dialog[dial_id]['dialogue'][turn]['visual_objects']
+        if not len(visual_object):
+            return None, None
+        assert len(visual_object) <= 1, 'More than one visual object in turn {} of dialogue {}'.format(turn, dial_id)
+        for obj in visual_object:
+            visual_obj_placeholder = int(obj.split('_')[-1])
+        return placeh2id[visual_obj_placeholder], visual_obj_placeholder
+
+
     def __len__(self):
         return len(self.transcripts)
 
@@ -80,8 +100,24 @@ class SIMMCDataset(Dataset):
         turn = int(turn)
 
         current_transcript = self.processed_turns[dial_id][turn]['transcript']
+
+        # extract visual objects
+        coref_map = self.id2dialog[dial_id]['dialogue_coref_map']
+        # inverted coref map: placeholder -> item_id
+        inverted_coref_map = {}
+        for key, item in coref_map.items():
+            inverted_coref_map[item] = key
+        focus_obj = self.extract_visual_object(dial_id, turn, inverted_coref_map)
+        visual_context_dict = {'focus': focus_obj, 'history': []}
+
+        # extract dialogue history
         history = []
         for t in range(turn):
+            # extract visual history
+            visual_object, _ = self.extract_visual_object(dial_id, t, inverted_coref_map)
+            if visual_object is not None:
+                visual_context_dict['history'].append(visual_object)
+            # extract textual history
             qa = [self.processed_turns[dial_id][t]['transcript'], 
                             self.processed_turns[dial_id][t]['system_transcript']]
             history.append(qa)
@@ -92,6 +128,7 @@ class SIMMCDataset(Dataset):
                 attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
             return dial_id, turn,\
                     current_transcript, history,\
+                    visual_context_dict,\
                     self.id2act[dial_id][turn]['action'], attributes
 
 
@@ -216,7 +253,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
     def __getitem__(self, index):
 
-        dial_id, turn, transcript, history, action, attributes = super().__getitem__(index)
+        dial_id, turn, transcript, history, visual_context, action, attributes = super().__getitem__(index)
 
         one_hot_attrs = [0]*(len(self._ATTR2LABEL))
         for attr in attributes:
@@ -224,7 +261,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
             assert one_hot_attrs[self._ATTR2LABEL[attr]] == 0, 'Attribute \'{}\' is present multiple times'.format(attr)
             one_hot_attrs[self._ATTR2LABEL[attr]] = 1
 
-        return dial_id, turn, transcript, history, self._ACT2LABEL[action], one_hot_attrs
+        return dial_id, turn, transcript, history, visual_context, self._ACT2LABEL[action], one_hot_attrs
 
 
     def __len__(self):

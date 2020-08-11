@@ -1,2 +1,2 @@
-from .blindstateless import BlindStatelessLSTM, WordEmbeddingBasedNetwork
+from .blindstateless import BlindStatelessLSTM
 from .blindstateful import BlindStatefulLSTM

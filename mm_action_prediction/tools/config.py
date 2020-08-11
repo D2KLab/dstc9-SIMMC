@@ -14,4 +14,4 @@ class TrainConfig():
     _WEIGHT_DECAY = 1e-2
     _PAD_TOKEN = '[PAD]'
     _UNK_TOKEN = '[UNK]'
-    _CHECKPOINT_FOLDER = 'action_prediction/checkpoints'
+    _CHECKPOINT_FOLDER = 'mm_action_prediction/checkpoints'
