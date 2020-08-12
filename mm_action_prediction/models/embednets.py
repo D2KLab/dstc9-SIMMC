@@ -1,30 +1,74 @@
+import pdb
+
 import numpy as np
 import torch
 import torch.nn as nn
 from spellchecker import SpellChecker
 
 
+class ItemEmbeddingBasedNetwork(nn.Module):
+    """Base class for word embedding layer initialization and weights loading
+
+    Args:
+        nn (torch.nn.Module): inherits from torch.nn.Module
+    """
+    def __init__(self, item_embeddings_path, freeze=False):
+
+        super(ItemEmbeddingBasedNetwork, self).__init__()
+
+        raw_data = np.load(item_embeddings_path, allow_pickle=True)
+        raw_data = dict(raw_data.item())
+
+        self.item2id = {}
+        for idx, item in enumerate(raw_data['item_ids']):
+            self.item2id[item] = idx
+
+        self.embedding_dim = raw_data['embedding_size']
+        embeddings = np.stack(raw_data['embeddings'])
+        embedding_weights = torch.tensor(embeddings)
+        num_embeddings = embedding_weights.shape[0]
+        assert embedding_weights.shape[-1] == self.embedding_dim, 'Real embedding dimension does not match the declared one'
+        self.embedding_layer = nn.Embedding(num_embeddings, self.embedding_dim)
+        self.embedding_layer.load_state_dict({'weight': embedding_weights})
+
+        if freeze:
+            for p in self.embedding_layer.parameters():
+                    p.requires_grad = False
+
+
+    def forward(self, input):
+        return self.embedding_layer(input)
+
+
+
 class WordEmbeddingBasedNetwork(nn.Module):
     """Base class for word embedding layer initialization and weights loading
 
     Args:
-        torch (torch.nn.Module): inherits from torch.nn.Module
+        nn (torch.nn.Module): inherits from torch.nn.Module
     """
-    def __init__(self, embedding_path, word2id, pad_token, unk_token, OOV_corrections=False):
+    def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, OOV_corrections=False, freeze=False):
 
         super(WordEmbeddingBasedNetwork, self).__init__()
         self.pad_token = pad_token
         self.unk_token = unk_token
         self.corrected_flag = OOV_corrections
         self.word2id = word2id
-        self.embedding_file = embedding_path.split('/')[-1]
-        self.load_embeddings_from_file(embedding_path)
+        self.embedding_file = word_embeddings_path.split('/')[-1]
+        self.load_embeddings_from_file(word_embeddings_path)
 
         embedding_weights = self.get_embeddings_weights(OOV_corrections)
 
-        num_embeddings, embedding_dim = embedding_weights.shape
-        self.embedding_layer = nn.Embedding(num_embeddings, embedding_dim)
+        num_embeddings, self.embedding_dim = embedding_weights.shape
+        self.embedding_layer = nn.Embedding(num_embeddings, self.embedding_dim)
         self.embedding_layer.load_state_dict({'weight': embedding_weights})
+        if freeze:
+            for p in self.embedding_layer.parameters():
+                p.requires_grad = False
+
+
+    def forward(self, input):
+        return self.embedding_layer(input)
 
 
     def load_embeddings_from_file(self, embeddings_path):

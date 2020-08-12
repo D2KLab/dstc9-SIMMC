@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from models import BlindStatelessLSTM, BlindStatefulLSTM
+from models import BlindStatelessLSTM, BlindStatefulLSTM, MMStatefulLSTM
 from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction, plotting_loss,
                    TrainConfig, SIMMCFashionConfig, Logger, print_annotation_dialogue)
 
@@ -40,14 +40,15 @@ def plotting(epochs, losses_trend, checkpoint_dir):
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Arguments loss trend', x_label='epochs', y_label='loss')
 
 
-def forward_step(model, batch, history, actions_targets, attributes_targets, device, actions_criterion, attributes_criterion, seq_lengths=None):
+def forward_step(model, batch, history, visual_context, actions_targets, attributes_targets, 
+                            device, actions_criterion, attributes_criterion, seq_lengths=None):
 
     batch = batch.to(device)
     actions_targets = actions_targets.to(device)
     attributes_targets = attributes_targets.to(device)
     seq_lengths =  seq_lengths.to(device)
 
-    actions_logits, attributes_logits, actions_probs, attributes_probs = model(batch, history, seq_lengths, device=device)
+    actions_logits, attributes_logits, actions_probs, attributes_probs = model(batch, history, visual_context, seq_lengths, device=device)
 
     actions_loss = actions_criterion(actions_logits, actions_targets)
     attributes_targets = attributes_targets.type_as(actions_logits)
@@ -99,14 +100,15 @@ def train(train_dataset, dev_dataset, args, device):
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = BlindStatefulLSTM(args.embeddings, 
-                                word2id=word2id, 
-                                OOV_corrections=False, 
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED)
+    model = MMStatefulLSTM(word_embeddings_path=args.embeddings, 
+                            word2id=word2id,
+                            item_embeddings_path=args.metadata_embeddings,
+                            OOV_corrections=False, 
+                            num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                            num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                            pad_token=TrainConfig._PAD_TOKEN,
+                            unk_token=TrainConfig._UNK_TOKEN,
+                            seed=TrainConfig._SEED)
     model.to(device)
     print('MODEL: {}'.format(model))
 
@@ -143,13 +145,14 @@ def train(train_dataset, dev_dataset, args, device):
         for curr_step, (dial_ids, turns, batch, seq_lengths, history, visual_context, actions, attributes) in enumerate(trainloader):
             pdb.set_trace()
             actions_loss, attributes_loss, _, _ = forward_step(model, batch,
-                                        history=history,
-                                        actions_targets=actions, 
-                                        attributes_targets=attributes,
-                                        actions_criterion=actions_criterion,
-                                        attributes_criterion=attributes_criterion,
-                                        seq_lengths=seq_lengths,
-                                        device=device)
+                                                        history=history,
+                                                        visual_context=visual_context,
+                                                        actions_targets=actions, 
+                                                        attributes_targets=attributes,
+                                                        actions_criterion=actions_criterion,
+                                                        attributes_criterion=attributes_criterion,
+                                                        seq_lengths=seq_lengths,
+                                                        device=device)
             #backward
             optimizer.zero_grad()
             loss = (actions_loss + attributes_loss)/2
@@ -166,10 +169,11 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = {'global': [], 'actions': [], 'attributes': []}
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, seq_lengths, history, actions, attributes) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, seq_lengths, history, visual_context, actions, attributes) in enumerate(devloader):
 
                 actions_loss, attributes_loss, _, _ = forward_step(model, batch,
                                                             history=history,
+                                                            visual_context=visual_context,
                                                             actions_targets=actions, 
                                                             attributes_targets=attributes,
                                                             actions_criterion=actions_criterion,
@@ -213,19 +217,7 @@ def train(train_dataset, dev_dataset, args, device):
 
 
 if __name__ == '__main__':
-    """Example
 
-        python main.py \
-        --data ../simmc/data/simmc_fashion/fashion_train_dials.json \
-        --metadata ../simmc/data/simmc_fashion/fashion_metadata.json \
-        --eval ../simmc/data/simmc_fashion/fashion_dev_dials.json\
-        --embeddings embeddings/glove.6B.50d.txt \
-        --actions annotations/fashion_train_dials_api_calls.json \
-        --eval_actions annotations/fashion_dev_dials_api_calls.json\
-        --batch_size 16\
-        --epochs 20\
-        --cuda 0
-    """
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -248,6 +240,11 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to embeddings file")
+    parser.add_argument(
+        "--metadata_embeddings",
+        type=str,
+        required=True,
+        help="Path to metadata embeddings file")
     parser.add_argument(
         "--actions",
         type=str,

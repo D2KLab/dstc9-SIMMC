@@ -4,6 +4,7 @@ export DATASET_PATH=data/simmc_fashion/train/fashion_train_dials.json
 export METADATA_PATH=data/simmc_fashion/fashion_metadata.json
 export EVAL_PATH=data/simmc_fashion/dev/fashion_dev_dials.json
 export GLOVE_PATH=embeddings/glove.6B.300d.txt
+export METADATA_EMBEDDINGS=data/simmc_fashion/fashion_metadata_embeddings.npy
 export ACTIONS_PATH=data/simmc_fashion/train/fashion_train_dials_api_calls.json
 export EVAL_ACTIONS_PATH=data/simmc_fashion/dev/fashion_dev_dials_api_calls.json
 
@@ -13,8 +14,9 @@ python mm_action_prediction/train.py \
         --metadata $METADATA_PATH\
         --eval $EVAL_PATH\
         --embeddings $GLOVE_PATH\
+        --metadata_embeddings $METADATA_EMBEDDINGS\
         --actions $ACTIONS_PATH\
         --eval_actions $EVAL_ACTIONS_PATH\
-        --batch_size 1\
+        --batch_size 3\
         --epochs 20\
         --cuda 0

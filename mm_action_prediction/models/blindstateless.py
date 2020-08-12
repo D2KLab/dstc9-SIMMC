@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .embednet import WordEmbeddingBasedNetwork
+from .embednets import WordEmbeddingBasedNetwork
         
 
 class BlindStatelessLSTM(WordEmbeddingBasedNetwork):

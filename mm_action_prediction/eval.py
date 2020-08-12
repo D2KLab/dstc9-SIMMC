@@ -58,7 +58,7 @@ def eval(model, test_dataset, args, save_folder, device):
 
     eval_dict = create_eval_dict(test_dataset)
     with torch.no_grad():
-        for curr_step, (dial_ids, turns, batch, seq_lengths, history, actions, attributes) in enumerate(testloader):
+        for curr_step, (dial_ids, turns, batch, seq_lengths, history, visual_context, actions, attributes) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
             dial_id = dial_ids[0]
             turn = turns[0]
@@ -108,15 +108,6 @@ def eval(model, test_dataset, args, save_folder, device):
 
 if __name__ == '__main__':
     #TODO make "infer": dataset with unknown labels (modify the dataset class)
-    """Example
-
-        python main.py \
-        --model checkpoints/2020-08-02T21:47:10\
-        --data ../simmc/data/simmc_fashion/fashion_devtrest_dials.json \
-        --metadata ../simmc/data/simmc_fashion/fashion_metadata.json \
-        --actions annotations/fashion_devtest_dials_api_calls.json \
-        --cuda 0
-    """
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -149,6 +140,11 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to embedding file")
+    parser.add_argument(
+        "--metadata_embeddings",
+        type=str,
+        required=True,
+        help="Path to metadata embeddings file")
     parser.add_argument(
         "--actions",
         default=None,

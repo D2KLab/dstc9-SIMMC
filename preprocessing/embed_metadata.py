@@ -32,7 +32,6 @@ def clean_value(value, tokenizer):
     return results
 
 
-
 def extract_metadata_embeddings(metadata_path, embeddings_path, save_path):
     
     with open(metadata_path) as fp:
@@ -40,7 +39,8 @@ def extract_metadata_embeddings(metadata_path, embeddings_path, save_path):
 
     glove, embedding_size = load_embeddings_from_file(embeddings_path=embeddings_path)
 
-    item_embeddings = {}
+    item_ids = []
+    item_embeddings = []
     tokenizer = WordPunctTokenizer() 
     for item_id, item in metadata_dict.items():
         fields_embeddings = []
@@ -63,30 +63,18 @@ def extract_metadata_embeddings(metadata_path, embeddings_path, save_path):
             assert fields_embeddings[-1].size == embedding_size, 'Wrong embedding dimension'
 
         assert len(fields_embeddings) == len(FIELDS_TO_EMBED), 'Wrong number of embeddings'
-        item_embeddings[item_id] = np.concatenate(fields_embeddings)
-
+        item_ids.append(item_id)
+        item_embeddings.append(np.concatenate(fields_embeddings))
+    
+    assert len(item_ids) == len(item_embeddings), 'Item ids list does not match item embeddings'
     np.save(
         save_path,
         {
-            'embedding_size': embedding_size,
-            'embeddings_dict': item_embeddings
+            'embedding_size': embedding_size*len(FIELDS_TO_EMBED),
+            'item_ids': item_ids,
+            'embeddings': np.stack(item_embeddings)
         }
     )
-
-
-
-
-            
-
-
-    
-
-
-
-
-
-
-
 
 
 if __name__ == '__main__':

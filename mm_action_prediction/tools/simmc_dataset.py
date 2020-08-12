@@ -107,7 +107,7 @@ class SIMMCDataset(Dataset):
         inverted_coref_map = {}
         for key, item in coref_map.items():
             inverted_coref_map[item] = key
-        focus_obj = self.extract_visual_object(dial_id, turn, inverted_coref_map)
+        focus_obj, _ = self.extract_visual_object(dial_id, turn, inverted_coref_map)
         visual_context_dict = {'focus': focus_obj, 'history': []}
 
         # extract dialogue history
@@ -115,13 +115,19 @@ class SIMMCDataset(Dataset):
         for t in range(turn):
             # extract visual history
             visual_object, _ = self.extract_visual_object(dial_id, t, inverted_coref_map)
-            if visual_object is not None:
-                visual_context_dict['history'].append(visual_object)
+            #? actually we have one object per turn, allowing object repetitions (think about inserting only unique elements)
+            # forcing object permanence (if a turn has no focus object, then the context is the object in previous turn)
+            curr_obj = visual_object if visual_object is not None else visual_context_dict['history'][-1]
+            visual_context_dict['history'].append(curr_obj)
             # extract textual history
             qa = [self.processed_turns[dial_id][t]['transcript'], 
                             self.processed_turns[dial_id][t]['system_transcript']]
             history.append(qa)
+        # forcing object permanence
+        if visual_context_dict['focus'] is None:
+            visual_context_dict['focus'] = visual_context_dict['history'][-1]
 
+        # dispatch data across different dataset instatiation
         if isinstance(self, SIMMCDatasetForActionPrediction,):
             attributes = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:

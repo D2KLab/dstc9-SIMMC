@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .embednet import WordEmbeddingBasedNetwork
+from .embednets import WordEmbeddingBasedNetwork, ItemEmbeddingBasedNetwork
 
 
-class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
+class MMStatefulLSTM(nn.Module):
     """
 
     Args:
@@ -16,18 +16,31 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
     """
     _HIDDEN_SIZE = 300
 
-    def __init__(self, embedding_path, word2id, num_actions, num_attrs, pad_token, unk_token, seed, OOV_corrections):
+    def __init__(self, word_embeddings_path, word2id, item_embeddings_path, 
+                                num_actions, num_attrs, pad_token, unk_token, 
+                                                        seed, OOV_corrections):
         
         torch.manual_seed(seed)
-        super(BlindStatefulLSTM, self).__init__(embedding_path, word2id, pad_token, unk_token, OOV_corrections)
+        super(MMStatefulLSTM, self).__init__()
+
+        self.item_embeddings_layer = ItemEmbeddingBasedNetwork(item_embeddings_path)
+        self.word_embeddings_layer = WordEmbeddingBasedNetwork(word_embeddings_path=word_embeddings_path, 
+                                                                word2id=word2id, 
+                                                                pad_token=pad_token, 
+                                                                unk_token=unk_token)
 
         self.num_actions = num_actions
         self.num_attrs = num_attrs
         self.memory_hidden_size = self._HIDDEN_SIZE
 
-        self.history_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
-        self.utterance_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
+        self.utterance_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
+                                            self.memory_hidden_size, 
+                                            batch_first=True, 
+                                            bidirectional=True)
         self.dropout = nn.Dropout(p=.5)
+
+        """
+        self.history_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
         
         #todo recurrent attention? 
         #self.cross_history_attn = nn.Linear()
@@ -50,6 +63,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
 
         self.singleturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
         self.singleturn_args_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
+        """
 
         #history encoder
         #utterance encoder
@@ -66,11 +80,14 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         #self.args_outlayer = nn.Linear(in_features=self.hidden_size, out_features=num_args)
 
 
-    def forward(self, batch, history, seq_lengths=None, device='cpu'):
+    def forward(self, batch, history, visual_context, seq_lengths=None, device='cpu'):
 
         # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
         u_t = self.encode_utterance(batch, seq_lengths)
 
+        v_t, visual_memory = self.encode_visual(visual_context, device)
+        pdb.set_trace()
+        """
         # separate single from multi-turn
         single_turns = []
         single_turns_pos = set()
@@ -130,6 +147,17 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         act_probs = F.softmax(act_out, dim=-1)
         args_probs = torch.sigmoid(args_out)
         return act_out, args_out, act_probs, args_probs
+        """
+
+    def encode_visual(self, visual_context, device):
+        focus = self.item_embeddings_layer(visual_context['focus'].to(device))
+        history = []
+        for history_item in visual_context['history']:
+            if not len(history_item):
+                history.append([])
+            else:
+                history.append(self.item_embeddings_layer(history_item.to(device)))
+        return focus, history
 
 
     def encode_history(self, history, device):
@@ -138,7 +166,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         for dial in history:
             hiddens = []
             for turn in dial:
-                emb = self.embedding_layer(turn.unsqueeze(0).to(device))
+                emb = self.word_embeddings_layer(turn.unsqueeze(0).to(device))
                 # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
                 out, (h_t, c_t) = self.history_encoder(emb)
                 bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
@@ -149,7 +177,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
 
 
     def encode_utterance(self, batch, seq_lengths):
-        embedded_seq_tensor = self.embedding_layer(batch)
+        embedded_seq_tensor = self.word_embeddings_layer(batch)
         if seq_lengths is not None:
             # pack padded sequence
             packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
@@ -217,6 +245,23 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         actions = torch.tensor([item[5] for item in batch])
         attributes = torch.tensor([item[6] for item in batch])
 
+        # item to id for the visual context
+        item2id = self.item_embeddings_layer.item2id
+        visual_ids = {'focus': [], 'history': []}
+        for v in visual_context:
+            curr_focus = item2id[v['focus']]
+            curr_history = []
+            for vv in v['history']:
+                v_id = item2id[vv]
+                curr_history.append(torch.tensor(v_id))
+            visual_ids['focus'].append(torch.tensor(curr_focus))
+            if len(curr_history):
+                curr_history = torch.stack(curr_history)
+            visual_ids['history'].append(curr_history)
+        visual_ids['focus'] = torch.stack(visual_ids['focus'])
+
+        word2id = self.word_embeddings_layer.word2id
+        unk_token = self.word_embeddings_layer.unk_token
         # words to ids for the history
         history_seq_ids = []
         for turn, item in zip(turns, history):
@@ -226,7 +271,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
                 concat_sentences = item[t][0] + ' ' + item[t][1] #? separator token
                 curr_seq = []
                 for word in concat_sentences.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    word_id = word2id[word] if word in word2id else word2id[unk_token]
                     curr_seq.append(word_id)
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
@@ -236,7 +281,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         for item in batch:
             curr_seq = []
             for word in item[2].split():
-                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                word_id = word2id[word] if word in word2id else word2id[unk_token]
                 curr_seq.append(word_id)
             utterance_seq_ids.append(curr_seq)
         
@@ -256,7 +301,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         attributes = attributes[perm_idx]
 
         # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, seq_tensor, seq_lengths, history_seq_ids, visual_context, actions, attributes
+        return dial_ids, turns, seq_tensor, seq_lengths, history_seq_ids, visual_ids, actions, attributes
 
 
     def __str__(self):
