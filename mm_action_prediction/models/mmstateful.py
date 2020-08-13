@@ -5,7 +5,30 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .embednets import WordEmbeddingBasedNetwork, ItemEmbeddingBasedNetwork
+from .embednets import WordEmbeddingNetwork, ItemEmbeddingNetwork
+
+import numpy as np
+
+
+
+def get_positional_embeddings(n_position, emb_dim):
+    """Create positional embeddings (from "Attention Is All You Need", Vaswani et al. 2017)
+
+    Args:
+        n_position (int): number of elements in the sequence
+        emb_dim (int): size of embeddings
+
+    Returns:
+        toch.FloatTensor: a positional embedding with shape [N_POSITION x EMB_DIM] 
+    """
+    # keep dim 0 for padding token position encoding zero vector
+    position_enc = np.array([
+        [pos / np.power(10000, 2 * (k // 2) / emb_dim) for k in range(emb_dim)]
+        if pos != 0 else np.zeros(emb_dim) for pos in range(n_position)])
+
+    position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2]) # dim 2i
+    position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2]) # dim 2i+1
+    return torch.from_numpy(position_enc).type(torch.FloatTensor)
 
 
 class MMStatefulLSTM(nn.Module):
@@ -19,33 +42,27 @@ class MMStatefulLSTM(nn.Module):
     def __init__(self, word_embeddings_path, word2id, item_embeddings_path, 
                                 num_actions, num_attrs, pad_token, unk_token, 
                                                         seed, OOV_corrections):
-        
         torch.manual_seed(seed)
         super(MMStatefulLSTM, self).__init__()
-
-        self.item_embeddings_layer = ItemEmbeddingBasedNetwork(item_embeddings_path)
-        self.word_embeddings_layer = WordEmbeddingBasedNetwork(word_embeddings_path=word_embeddings_path, 
-                                                                word2id=word2id, 
-                                                                pad_token=pad_token, 
-                                                                unk_token=unk_token)
 
         self.num_actions = num_actions
         self.num_attrs = num_attrs
         self.memory_hidden_size = self._HIDDEN_SIZE
 
+        # NETWORK
+        self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
+        self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
+                                                            word2id=word2id, 
+                                                            pad_token=pad_token, 
+                                                            unk_token=unk_token)
         self.utterance_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
-                                            self.memory_hidden_size, 
-                                            batch_first=True, 
-                                            bidirectional=True)
+                                        self.memory_hidden_size, 
+                                        batch_first=True, 
+                                        bidirectional=True)
         self.dropout = nn.Dropout(p=.5)
+        self.item_dim_reduction = nn.Linear(in_features=self.item_embeddings_layer.embedding_dim,
+                                            out_features=2*self.memory_hidden_size)
 
-        """
-        self.history_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
-        
-        #todo recurrent attention? 
-        #self.cross_history_attn = nn.Linear()
-
-        #! this is position agnostic (should not be good)
         self.utterance_memory_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 4*self.memory_hidden_size),
                                                     nn.Tanh(),
                                                     nn.Dropout(p=.5),
@@ -60,68 +77,69 @@ class MMStatefulLSTM(nn.Module):
 
         self.multiturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
         self.multiturn_args_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
-
-        self.singleturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
-        self.singleturn_args_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
-        """
-
-        #history encoder
-        #utterance encoder
-        #cross-history attention
         
-        #utterance self-attention
-        #filtered cross-history attention
-        #context encoder
-        #action out layer
-        #args encoder
-        #args out layer
-
-        #self.actions_outlayer = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
-        #self.args_outlayer = nn.Linear(in_features=self.hidden_size, out_features=num_args)
+        self.singleturn_actions_outlayer = nn.Linear(in_features=4*self.memory_hidden_size, out_features=self.num_actions)
+        self.singleturn_args_outlayer = nn.Linear(in_features=4*self.memory_hidden_size, out_features=self.num_attrs)
 
 
-    def forward(self, batch, history, visual_context, seq_lengths=None, device='cpu'):
+    def forward(self, utterances, history, visual_context, seq_lengths=None, device='cpu'):
 
         # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
-        u_t = self.encode_utterance(batch, seq_lengths)
+        u_t = self.encode_utterance(utterances, seq_lengths)
+        focus, focus_history = self.encode_visual(visual_context, device)
+        # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
+        focus_t = self.item_dim_reduction(focus)
 
-        v_t, visual_memory = self.encode_visual(visual_context, device)
-        pdb.set_trace()
-        """
         # separate single from multi-turn
         single_turns = []
+        single_turns_v_focus = []
         single_turns_pos = set()
         multi_turns = []
+        multi_turns_v_focus = []
         multi_turns_history = []
+        multi_turns_v_history = []
         for dial_idx, history_item in enumerate(history):
             if len(history_item) == 0:
                 single_turns_pos.add(dial_idx)
                 single_turns.append(u_t[dial_idx])
+                single_turns_v_focus.append(focus_t[dial_idx])
             else:
                 multi_turns.append(u_t[dial_idx])
                 multi_turns_history.append(history[dial_idx])
+                multi_turns_v_focus.append(focus[dial_idx])
+                multi_turns_v_history.append(focus_history[dial_idx])
 
         if len(single_turns):
-            single_turns = torch.stack(single_turns)
+            # concat u_t with correspondent v_t
+            single_u_t = torch.stack(single_turns)
+            single_v_t = torch.stack(single_turns_v_focus)
+            #pos = list(single_turns_pos)
+            single_u_v_concat = torch.cat((single_u_t, single_v_t), dim=-1)
             # compute output for single turn dialogues
-            act_out1 = self.singleturn_actions_outlayer(single_turns)
-            args_out1 = self.singleturn_args_outlayer(single_turns)
+            act_out1 = self.singleturn_actions_outlayer(single_u_v_concat)
+            args_out1 = self.singleturn_args_outlayer(single_u_v_concat)
 
         if len(multi_turns):
-            multi_turns = torch.stack(multi_turns)
+            multi_u_t = torch.stack(multi_turns)
+            multi_v_t = torch.stack(multi_turns_v_focus)
+            multi_v_t = self.item_dim_reduction(multi_v_t)
 
             # memory bank is a list of BATCH_SIZE tensors, each of them having shape N_TURNSx2MEMORY_HIDDEN_SIZE
-            memory_bank = self.encode_history(multi_turns_history, device)        
-            assert len(multi_turns) == len(memory_bank), 'Wrong memory size'
+            lang_memory = self.encode_history(multi_turns_history, device)        
+            assert len(multi_turns) == len(lang_memory), 'Wrong memory size'
+
+            #visual_memory = self.encode_visual_history(multi_turns_v_history, device) #todo visual memory
+            #assert len(multi_turns) == len(visual_memory), 'Wrong memory size'
 
             # c_t shape [MULTI_TURNS_SET_SIZE x MEMORY_HIDDEN_SIZE]
-            attentive_c_t = self.attention_over_memory(multi_turns, memory_bank)
+            c_t = self.attention_over_memory(multi_u_t, lang_memory)
+            mm_c_t = c_t * multi_v_t
 
             #? Hadamard product between c_t and u_t? It is simply "tensor1 * tensor2"
-            ut_ct_concat = torch.cat((multi_turns, attentive_c_t), dim=-1)
+            ut_ct_concat = torch.cat((multi_u_t, mm_c_t), dim=-1)
             c_t_tilde1 = self.linear_act_post_attn(ut_ct_concat)
 
-            ut_ct1_concat = torch.cat((multi_turns, c_t_tilde1), dim=-1)
+            ut_ct1_concat = torch.cat((multi_u_t, c_t_tilde1), dim=-1)
             c_t_tilde2 = self.linear_args_post_attn(ut_ct1_concat)
 
             act_out2 = self.multiturn_actions_outlayer(c_t_tilde1)
@@ -132,7 +150,7 @@ class MMStatefulLSTM(nn.Module):
         args_out = []
         pos1 = 0
         pos2 = 0
-        for idx in range(batch.shape[0]):
+        for idx in range(utterances.shape[0]):
             if idx in single_turns_pos:
                 act_out.append(act_out1[pos1])
                 args_out.append(args_out1[pos1])
@@ -147,33 +165,6 @@ class MMStatefulLSTM(nn.Module):
         act_probs = F.softmax(act_out, dim=-1)
         args_probs = torch.sigmoid(args_out)
         return act_out, args_out, act_probs, args_probs
-        """
-
-    def encode_visual(self, visual_context, device):
-        focus = self.item_embeddings_layer(visual_context['focus'].to(device))
-        history = []
-        for history_item in visual_context['history']:
-            if not len(history_item):
-                history.append([])
-            else:
-                history.append(self.item_embeddings_layer(history_item.to(device)))
-        return focus, history
-
-
-    def encode_history(self, history, device):
-        #todo turn embedding based on previous turns (hierarchical recurrent encoder - HRE)
-        encoded_batch_history = []
-        for dial in history:
-            hiddens = []
-            for turn in dial:
-                emb = self.word_embeddings_layer(turn.unsqueeze(0).to(device))
-                # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
-                out, (h_t, c_t) = self.history_encoder(emb)
-                bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
-                hiddens.append(bidirectional_h_t.squeeze(0))
-            assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
-            encoded_batch_history.append(torch.stack(hiddens))
-        return encoded_batch_history
 
 
     def encode_utterance(self, batch, seq_lengths):
@@ -192,6 +183,48 @@ class MMStatefulLSTM(nn.Module):
             output, input_sizes = pad_packed_sequence(out1, batch_first=True)
         """
         return bidirectional_h_t
+
+
+    def encode_visual(self, visual_context, device):
+        focus = self.item_embeddings_layer(visual_context['focus'].to(device))
+        history = []
+        for history_item in visual_context['history']:
+            if not len(history_item):
+                history.append([])
+            else:
+                history.append(self.item_embeddings_layer(history_item.to(device)))
+        return focus, history
+
+
+    def encode_history(self, history, device):
+        #todo turn embedding based on previous turns (hierarchical recurrent encoder - HRE)
+        encoded_batch_history = []
+        for dial in history:
+            hiddens = []
+            positional_embeddings = get_positional_embeddings(len(dial), 2*self.memory_hidden_size).to(device)
+            assert positional_embeddings.shape[0] == len(dial)
+            for turn, pos_emb in zip(dial, positional_embeddings):
+                emb = self.word_embeddings_layer(turn.unsqueeze(0).to(device))
+                # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
+                out, (h_t, c_t) = self.utterance_encoder(emb)
+                bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
+                pos_bidirectional_h_t = bidirectional_h_t+pos_emb
+                hiddens.append(pos_bidirectional_h_t.squeeze(0))
+            assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
+            encoded_batch_history.append(torch.stack(hiddens))
+        return encoded_batch_history
+
+
+    def encode_visual_history(self, history, device):
+        encoded_batch_history = []
+        for dial in history:
+            hiddens = []
+            for turn in dial:
+                m_t = self.item_dim_reduction(turn.unsqueeze(0).to(device))
+                hiddens.append(m_t.squeeze(0))
+            assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
+            encoded_batch_history.append(torch.stack(hiddens))
+        return encoded_batch_history
 
 
     def attention_over_memory(self, u_t, memory_bank):
@@ -300,8 +333,13 @@ class MMStatefulLSTM(nn.Module):
         actions = actions[perm_idx]
         attributes = attributes[perm_idx]
 
-        # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, seq_tensor, seq_lengths, history_seq_ids, visual_ids, actions, attributes
+        batch_dict = {}
+        batch_dict['utterances'] = seq_tensor
+        batch_dict['history'] = history_seq_ids
+        batch_dict['visual_context'] = visual_ids
+        batch_dict['seq_lengths'] = seq_lengths
+
+        return dial_ids, turns, batch_dict, actions, attributes
 
 
     def __str__(self):

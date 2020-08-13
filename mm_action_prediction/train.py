@@ -18,6 +18,39 @@ import os
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,3"  # specify which GPU(s) to be used
 
 
+def instantiate_model(args, word2id):
+    if args.model == 'blindstateless':
+        return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
+                                word2id=word2id,
+                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED,
+                                OOV_corrections=False,
+                                freeze_embeddings=True)
+    elif args.model == 'blindstateful':
+        return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
+                                word2id=word2id,
+                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED,
+                                OOV_corrections=False)
+    elif args.model == 'mmstateful':
+        return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
+                                word2id=word2id,
+                                item_embeddings_path=args.metadata_embeddings,
+                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED,
+                                OOV_corrections=False)
+    else:
+        raise Exception('Model not present!')
+
 
 def plotting(epochs, losses_trend, checkpoint_dir):
     epoch_list = np.arange(1, epochs+1)
@@ -40,15 +73,16 @@ def plotting(epochs, losses_trend, checkpoint_dir):
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Arguments loss trend', x_label='epochs', y_label='loss')
 
 
-def forward_step(model, batch, history, visual_context, actions_targets, attributes_targets, 
-                            device, actions_criterion, attributes_criterion, seq_lengths=None):
+def forward_step(model, batch, actions, attributes, actions_criterion, attributes_criterion, device):
 
-    batch = batch.to(device)
-    actions_targets = actions_targets.to(device)
-    attributes_targets = attributes_targets.to(device)
+    batch['utterances'] = batch['utterances'].to(device)
+    actions_targets = actions.to(device)
+    attributes_targets = attributes.to(device)
+    """
     seq_lengths =  seq_lengths.to(device)
+    """
 
-    actions_logits, attributes_logits, actions_probs, attributes_probs = model(batch, history, visual_context, seq_lengths, device=device)
+    actions_logits, attributes_logits, actions_probs, attributes_probs = model(**batch, device=device)
 
     actions_loss = actions_criterion(actions_logits, actions_targets)
     attributes_targets = attributes_targets.type_as(actions_logits)
@@ -78,7 +112,7 @@ def train(train_dataset, dev_dataset, args, device):
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
     os.makedirs(checkpoint_dir, exist_ok=True)
     # prepare logger to redirect both on file and stdout
-    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -100,22 +134,15 @@ def train(train_dataset, dev_dataset, args, device):
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = MMStatefulLSTM(word_embeddings_path=args.embeddings, 
-                            word2id=word2id,
-                            item_embeddings_path=args.metadata_embeddings,
-                            OOV_corrections=False, 
-                            num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                            num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
-                            pad_token=TrainConfig._PAD_TOKEN,
-                            unk_token=TrainConfig._UNK_TOKEN,
-                            seed=TrainConfig._SEED)
+    model = instantiate_model(args, word2id)
     model.to(device)
-    print('MODEL: {}'.format(model))
+    print('MODEL NAME: {}'.format(args.model))
+    print('NETWORK: {}'.format(model))
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': False, #todo set to True
-            'num_workers': 0}
+            'shuffle': True, #todo set to True
+            'num_workers': 2}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
@@ -130,7 +157,7 @@ def train(train_dataset, dev_dataset, args, device):
     actions_criterion = torch.nn.CrossEntropyLoss().to(device)
     attributes_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(10.)).to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = [2,5,8,15], gamma = 0.5) #todo try with gamma=.1
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(0, args.epochs, 10)), gamma = 0.6) #todo try with gamma=.1
 
     #prepare containers for statistics
     losses_trend = {'train': {'global':[], 'actions': [], 'attributes': []}, 
@@ -142,17 +169,15 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = {'global': [], 'actions': [], 'attributes': []}
 
-        for curr_step, (dial_ids, turns, batch, seq_lengths, history, visual_context, actions, attributes) in enumerate(trainloader):
-            pdb.set_trace()
-            actions_loss, attributes_loss, _, _ = forward_step(model, batch,
-                                                        history=history,
-                                                        visual_context=visual_context,
-                                                        actions_targets=actions, 
-                                                        attributes_targets=attributes,
-                                                        actions_criterion=actions_criterion,
-                                                        attributes_criterion=attributes_criterion,
-                                                        seq_lengths=seq_lengths,
-                                                        device=device)
+        for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(trainloader):
+
+            actions_loss, attributes_loss, _, _ = forward_step(model, 
+                                                                batch=batch,
+                                                                actions=actions,
+                                                                attributes=attributes,
+                                                                actions_criterion=actions_criterion,
+                                                                attributes_criterion=attributes_criterion,
+                                                                device=device)
             #backward
             optimizer.zero_grad()
             loss = (actions_loss + attributes_loss)/2
@@ -169,17 +194,15 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = {'global': [], 'actions': [], 'attributes': []}
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, seq_lengths, history, visual_context, actions, attributes) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(devloader):
 
-                actions_loss, attributes_loss, _, _ = forward_step(model, batch,
-                                                            history=history,
-                                                            visual_context=visual_context,
-                                                            actions_targets=actions, 
-                                                            attributes_targets=attributes,
-                                                            actions_criterion=actions_criterion,
-                                                            attributes_criterion=attributes_criterion,
-                                                            seq_lengths=seq_lengths,
-                                                            device=device)
+                actions_loss, attributes_loss, _, _ = forward_step(model, 
+                                                                    batch=batch,
+                                                                    actions=actions,
+                                                                    attributes=attributes,
+                                                                    actions_criterion=actions_criterion,
+                                                                    attributes_criterion=attributes_criterion,
+                                                                    device=device)
                 loss = (actions_loss + attributes_loss)/2
 
                 curr_epoch_losses['global'].append(loss.item())
@@ -220,6 +243,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=['blindstateless', 'blindstateful', 'mmstateful'],
+        required=True,
+        help="Type of the model (options: 'blindstateless', 'blindstateful', 'mmstateful')")
     parser.add_argument(
         "--data",
         type=str,

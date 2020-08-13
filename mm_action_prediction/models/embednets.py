@@ -6,7 +6,7 @@ import torch.nn as nn
 from spellchecker import SpellChecker
 
 
-class ItemEmbeddingBasedNetwork(nn.Module):
+class ItemEmbeddingNetwork(nn.Module):
     """Base class for word embedding layer initialization and weights loading
 
     Args:
@@ -14,7 +14,7 @@ class ItemEmbeddingBasedNetwork(nn.Module):
     """
     def __init__(self, item_embeddings_path, freeze=False):
 
-        super(ItemEmbeddingBasedNetwork, self).__init__()
+        super(ItemEmbeddingNetwork, self).__init__()
 
         raw_data = np.load(item_embeddings_path, allow_pickle=True)
         raw_data = dict(raw_data.item())
@@ -41,7 +41,7 @@ class ItemEmbeddingBasedNetwork(nn.Module):
 
 
 
-class WordEmbeddingBasedNetwork(nn.Module):
+class WordEmbeddingNetwork(nn.Module):
     """Base class for word embedding layer initialization and weights loading
 
     Args:
@@ -49,7 +49,7 @@ class WordEmbeddingBasedNetwork(nn.Module):
     """
     def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, OOV_corrections=False, freeze=False):
 
-        super(WordEmbeddingBasedNetwork, self).__init__()
+        super(WordEmbeddingNetwork, self).__init__()
         self.pad_token = pad_token
         self.unk_token = unk_token
         self.corrected_flag = OOV_corrections

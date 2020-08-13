@@ -5,28 +5,36 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .embednets import WordEmbeddingBasedNetwork
+from .embednets import WordEmbeddingNetwork
 
 
-class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
-    """
+class BlindStatefulLSTM(nn.Module):
 
-    Args:
-        nn ([type]): [description]
-    """
+
     _HIDDEN_SIZE = 300
 
-    def __init__(self, embedding_path, word2id, num_actions, num_attrs, pad_token, unk_token, seed, OOV_corrections):
+    def __init__(self, word_embeddings_path, word2id, num_actions, num_attrs, pad_token, unk_token, seed, OOV_corrections):
         
         torch.manual_seed(seed)
-        super(BlindStatefulLSTM, self).__init__(embedding_path, word2id, pad_token, unk_token, OOV_corrections)
+        super(BlindStatefulLSTM, self).__init__()
 
         self.num_actions = num_actions
         self.num_attrs = num_attrs
         self.memory_hidden_size = self._HIDDEN_SIZE
 
-        self.history_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
-        self.utterance_encoder = nn.LSTM(self.embedding_size, self.memory_hidden_size, batch_first=True, bidirectional=True)
+        self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path,
+                                                            word2id=word2id, 
+                                                            pad_token=pad_token, 
+                                                            unk_token=unk_token)
+
+        self.history_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
+                                        self.memory_hidden_size, 
+                                        batch_first=True, 
+                                        bidirectional=True)
+        self.utterance_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
+                                        self.memory_hidden_size, 
+                                        batch_first=True, 
+                                        bidirectional=True)
         self.dropout = nn.Dropout(p=.5)
         
         #todo recurrent attention? 
@@ -41,35 +49,21 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         self.linear_act_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
                                                     nn.Dropout(p=.5),
                                                     nn.ReLU())
-        self.linear_args_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
+        self.linear_attrs_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
                                                     nn.Dropout(p=.5),
                                                     nn.ReLU())
 
         self.multiturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
-        self.multiturn_args_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
+        self.multiturn_attrs_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
 
         self.singleturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
-        self.singleturn_args_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
-
-        #history encoder
-        #utterance encoder
-        #cross-history attention
-        
-        #utterance self-attention
-        #filtered cross-history attention
-        #context encoder
-        #action out layer
-        #args encoder
-        #args out layer
-
-        #self.actions_outlayer = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
-        #self.args_outlayer = nn.Linear(in_features=self.hidden_size, out_features=num_args)
+        self.singleturn_attrs_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
 
 
-    def forward(self, batch, history, seq_lengths=None, device='cpu'):
+    def forward(self, utterances, history, seq_lengths=None, device='cpu'):
 
         # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
-        u_t = self.encode_utterance(batch, seq_lengths)
+        u_t = self.encode_utterance(utterances, seq_lengths)
 
         # separate single from multi-turn
         single_turns = []
@@ -88,7 +82,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
             single_turns = torch.stack(single_turns)
             # compute output for single turn dialogues
             act_out1 = self.singleturn_actions_outlayer(single_turns)
-            args_out1 = self.singleturn_args_outlayer(single_turns)
+            attrs_out1 = self.singleturn_attrs_outlayer(single_turns)
 
         if len(multi_turns):
             multi_turns = torch.stack(multi_turns)
@@ -105,31 +99,31 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
             c_t_tilde1 = self.linear_act_post_attn(ut_ct_concat)
 
             ut_ct1_concat = torch.cat((multi_turns, c_t_tilde1), dim=-1)
-            c_t_tilde2 = self.linear_args_post_attn(ut_ct1_concat)
+            c_t_tilde2 = self.linear_attrs_post_attn(ut_ct1_concat)
 
             act_out2 = self.multiturn_actions_outlayer(c_t_tilde1)
-            args_out2 = self.multiturn_args_outlayer(c_t_tilde2)
+            attrs_out2 = self.multiturn_attrs_outlayer(c_t_tilde2)
 
         # recompose the output
         act_out = []
-        args_out = []
+        attrs_out = []
         pos1 = 0
         pos2 = 0
-        for idx in range(batch.shape[0]):
+        for idx in range(utterances.shape[0]):
             if idx in single_turns_pos:
                 act_out.append(act_out1[pos1])
-                args_out.append(args_out1[pos1])
+                attrs_out.append(attrs_out1[pos1])
                 pos1 += 1
             else:
                 act_out.append(act_out2[pos2])
-                args_out.append(args_out2[pos2])
+                attrs_out.append(attrs_out2[pos2])
                 pos2 += 1
         act_out = torch.stack(act_out)
-        args_out = torch.stack(args_out)
+        attrs_out = torch.stack(attrs_out)
 
         act_probs = F.softmax(act_out, dim=-1)
-        args_probs = torch.sigmoid(args_out)
-        return act_out, args_out, act_probs, args_probs
+        attrs_probs = torch.sigmoid(attrs_out)
+        return act_out, attrs_out, act_probs, attrs_probs
 
 
     def encode_history(self, history, device):
@@ -138,7 +132,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         for dial in history:
             hiddens = []
             for turn in dial:
-                emb = self.embedding_layer(turn.unsqueeze(0).to(device))
+                emb = self.word_embeddings_layer(turn.unsqueeze(0).to(device))
                 # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
                 out, (h_t, c_t) = self.history_encoder(emb)
                 bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
@@ -149,7 +143,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
 
 
     def encode_utterance(self, batch, seq_lengths):
-        embedded_seq_tensor = self.embedding_layer(batch)
+        embedded_seq_tensor = self.word_embeddings_layer(batch)
         if seq_lengths is not None:
             # pack padded sequence
             packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
@@ -217,6 +211,8 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         attributes = torch.tensor([item[6] for item in batch])
 
         # words to ids for the history
+        word2id = self.word_embeddings_layer.word2id
+        unk_token = self.word_embeddings_layer.unk_token
         history_seq_ids = []
         for turn, item in zip(turns, history):
             assert len(item) == turn, 'Number of turns does not match history length'
@@ -225,7 +221,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
                 concat_sentences = item[t][0] + ' ' + item[t][1] #? separator token
                 curr_seq = []
                 for word in concat_sentences.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    word_id = word2id[word] if word in word2id else word2id[unk_token]
                     curr_seq.append(word_id)
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
@@ -235,7 +231,7 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         for item in batch:
             curr_seq = []
             for word in item[2].split():
-                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                word_id = word2id[word] if word in word2id else word2id[unk_token]
                 curr_seq.append(word_id)
             utterance_seq_ids.append(curr_seq)
         
@@ -254,8 +250,12 @@ class BlindStatefulLSTM(WordEmbeddingBasedNetwork):
         actions = actions[perm_idx]
         attributes = attributes[perm_idx]
 
-        # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, seq_tensor, seq_lengths, history_seq_ids, actions, attributes
+        batch_dict = {}
+        batch_dict['utterances'] = seq_tensor
+        batch_dict['history'] = history_seq_ids
+        batch_dict['seq_lengths'] = seq_lengths
+
+        return dial_ids, turns, batch_dict, actions, attributes
 
 
     def __str__(self):

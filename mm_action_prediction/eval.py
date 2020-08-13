@@ -36,6 +36,39 @@ id2act = SIMMCDatasetForActionPrediction._LABEL2ACT
 id2attrs = SIMMCDatasetForActionPrediction._ATTRS
 
 
+def instantiate_model(args, word2id):
+    if args.model == 'blindstateless':
+        return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
+                                word2id=word2id,
+                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED,
+                                OOV_corrections=False)
+    elif args.model == 'blindstateful':
+        return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
+                                word2id=word2id,
+                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED,
+                                OOV_corrections=False)
+    elif args.model == 'mmstateful':
+        return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
+                                word2id=word2id,
+                                item_embeddings_path=args.metadata_embeddings,
+                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
+                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                pad_token=TrainConfig._PAD_TOKEN,
+                                unk_token=TrainConfig._UNK_TOKEN,
+                                seed=TrainConfig._SEED,
+                                OOV_corrections=False)
+    else:
+        raise Exception('Model not present!')
+
+
 def create_eval_dict(dataset):
     eval_dict = {}
     for dial_id in dataset.id2dialog:
@@ -58,16 +91,16 @@ def eval(model, test_dataset, args, save_folder, device):
 
     eval_dict = create_eval_dict(test_dataset)
     with torch.no_grad():
-        for curr_step, (dial_ids, turns, batch, seq_lengths, history, visual_context, actions, attributes) in enumerate(testloader):
+        for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
             dial_id = dial_ids[0]
             turn = turns[0]
 
-            batch = batch.to(device)
+            batch['utterances'] = batch['utterances'].to(device)
             actions = actions.to(device)
             attributes = attributes.to(device)
 
-            actions_out, attributes_out, actions_probs, attributes_probs = model(batch, history, seq_lengths, device=device)
+            actions_out, attributes_out, actions_probs, attributes_probs = model(**batch, device=device)
 
             #get predicted action and arguments
             actions_predictions = torch.argmax(actions_probs, dim=-1)
@@ -102,8 +135,7 @@ def eval(model, test_dataset, args, save_folder, device):
             json.dump(eval_list, fp)
         print('results saved in {}'.format(save_file))
     except:
-        pdb.set_trace()
-
+        print('Error in writing the resulting JSON')
 
 
 if __name__ == '__main__':
@@ -112,10 +144,16 @@ if __name__ == '__main__':
 
     parser.add_argument(
         "--model",
+        type=str,
+        choices=['blindstateless', 'blindstateful', 'mmstateful'],
+        required=True,
+        help="Type of the model (options: 'blindstateless', 'blindstateful', 'mmstateful')")
+    parser.add_argument(
+        "--model_path",
         default=None,
         type=str,
         required=True,
-        help="Path to the model to use")
+        help="Path to the weights of the model")
     parser.add_argument(
         "--vocabulary",
         default=None,
@@ -171,17 +209,10 @@ if __name__ == '__main__':
 
     word2id = torch.load(args.vocabulary)
 
-    model = BlindStatefulLSTM(args.embeddings, 
-                                word2id=word2id, 
-                                OOV_corrections=False, 
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED)
-    model.load_state_dict(torch.load(args.model))
+    model = instantiate_model(args, word2id)
+    model.load_state_dict(torch.load(args.model_path))
 
-    model_folder = '/'.join(args.model.split('/')[:-1])
+    model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))
 
     eval(model, test_dataset, args, save_folder=model_folder, device=device)

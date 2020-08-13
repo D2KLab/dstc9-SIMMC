@@ -6,10 +6,10 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .embednets import WordEmbeddingBasedNetwork
+from .embednets import WordEmbeddingNetwork
         
 
-class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
+class BlindStatelessLSTM(nn.Module):
     """Implementation of a blind and stateless LSTM for action prediction. It approximates the probability distribution:
 
             P(a_t | U_t)
@@ -23,10 +23,11 @@ class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
         self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
     """
 
-    _HIDDEN_SIZE = 300
+    _HIDDEN_SIZE = 800
 
 
-    def __init__(self, embedding_path, word2id, num_actions, num_args, pad_token, unk_token, seed, OOV_corrections=False):
+    def __init__(self, word_embeddings_path, word2id, num_actions, num_attrs, 
+                        pad_token, unk_token, seed, OOV_corrections=False, freeze_embeddings=False):
         """
         Glove download: https://nlp.stanford.edu/projects/glove/
 
@@ -35,17 +36,24 @@ class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
         """
 
         torch.manual_seed(seed)
-        super(BlindStatelessLSTM, self).__init__(embedding_path, word2id, pad_token, unk_token, OOV_corrections)
+        super(BlindStatelessLSTM, self).__init__()
 
         self.hidden_size = self._HIDDEN_SIZE
 
-        self.lstm = nn.LSTM(self.embedding_size, self.hidden_size, batch_first=True)
+        self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
+                                                            word2id=word2id, 
+                                                            pad_token=pad_token, 
+                                                            unk_token=unk_token,
+                                                            OOV_corrections=OOV_corrections,
+                                                            freeze=freeze_embeddings)
+
+        self.lstm = nn.LSTM(self.word_embeddings_layer.embedding_dim, self.hidden_size, batch_first=True)
         self.dropout = nn.Dropout(p=0.5)
         self.actions_linear = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
-        self.args_linear = nn.Linear(in_features=self.hidden_size, out_features=num_args)
+        self.attrs_linear = nn.Linear(in_features=self.hidden_size, out_features=num_attrs)
 
 
-    def forward(self, batch, seq_lengths=None):
+    def forward(self, utterances, seq_lengths=None, device='cpu'):
         """Forward pass for BlindStatelessLSTM
 
         Args:
@@ -54,7 +62,7 @@ class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
                                                         The shape is B. Defaults to None.
         """
 
-        embedded_seq_tensor = self.embedding_layer(batch)
+        embedded_seq_tensor = self.word_embeddings_layer(utterances)
         if seq_lengths is not None:
             # pack padded sequence
             packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
@@ -69,12 +77,12 @@ class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
         h_t = self.dropout(h_t)
         # h_t has shape NUM_DIRxBxHIDDEN_SIZE
         actions_logits = self.actions_linear(h_t[0])
-        args_logits = self.args_linear(h_t[0])
+        attrs_logits = self.attrs_linear(h_t[0])
 
         #out2.shape = BxNUM_LABELS
         actions_probs = F.softmax(actions_logits, dim=-1)
-        args_probs = torch.sigmoid(args_logits)
-        return actions_logits, args_logits, actions_probs, args_probs
+        attrs_probs = torch.sigmoid(attrs_logits)
+        return actions_logits, attrs_logits, actions_probs, attrs_probs
 
 
     def collate_fn(self, batch):
@@ -94,17 +102,19 @@ class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
         actions = torch.tensor([item[5] for item in batch])
-        arguments = torch.tensor([item[6] for item in batch])
+        attributes = torch.tensor([item[6] for item in batch])
 
         # transform words to ids
         seq_ids = []
+        word2id = self.word_embeddings_layer.word2id
+        unk_token = self.word_embeddings_layer.unk_token
         for item in batch:
             curr_seq = []
             for word in item[2].split():
-                if word in self.word2id:
-                    curr_seq.append(self.word2id[word])
+                if word in word2id:
+                    curr_seq.append(word2id[word])
                 else:
-                    curr_seq.append(self.word2id[self.unk_token])
+                    curr_seq.append(word2id[unk_token])
             seq_ids.append(curr_seq)
         
         seq_lengths = torch.tensor(list(map(len, seq_ids)), dtype=torch.long)
@@ -120,10 +130,14 @@ class BlindStatelessLSTM(WordEmbeddingBasedNetwork):
         # keep the correspondance with the target
         seq_tensor = seq_tensor[perm_idx]
         actions = actions[perm_idx]
-        arguments = arguments[perm_idx]
+        attributes = attributes[perm_idx]
+
+        batch_dict = {}
+        batch_dict['utterances'] = seq_tensor
+        batch_dict['seq_lengths'] = seq_lengths
 
         # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, seq_tensor, seq_lengths, actions, arguments
+        return dial_ids, turns, batch_dict, actions, attributes
 
 
     def __str__(self):
