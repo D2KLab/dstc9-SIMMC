@@ -26,16 +26,11 @@ class BlindStatefulLSTM(nn.Module):
                                                             word2id=word2id, 
                                                             pad_token=pad_token, 
                                                             unk_token=unk_token)
-
-        self.history_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
-                                        self.memory_hidden_size, 
-                                        batch_first=True, 
-                                        bidirectional=True)
         self.utterance_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
                                         self.memory_hidden_size, 
                                         batch_first=True, 
                                         bidirectional=True)
-        self.dropout = nn.Dropout(p=.5)
+        self.dropout = nn.Dropout(p=0.5)
         
         #todo recurrent attention? 
         #self.cross_history_attn = nn.Linear()
@@ -134,7 +129,7 @@ class BlindStatefulLSTM(nn.Module):
             for turn in dial:
                 emb = self.word_embeddings_layer(turn.unsqueeze(0).to(device))
                 # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
-                out, (h_t, c_t) = self.history_encoder(emb)
+                out, (h_t, c_t) = self.utterance_encoder(emb)
                 bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
                 hiddens.append(bidirectional_h_t.squeeze(0))
             assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
@@ -211,6 +206,7 @@ class BlindStatefulLSTM(nn.Module):
         attributes = torch.tensor([item[6] for item in batch])
 
         # words to ids for the history
+        #todo do pack padded sequence for history also
         word2id = self.word_embeddings_layer.word2id
         unk_token = self.word_embeddings_layer.unk_token
         history_seq_ids = []
@@ -254,7 +250,7 @@ class BlindStatefulLSTM(nn.Module):
         batch_dict['utterances'] = seq_tensor
         batch_dict['history'] = history_seq_ids
         batch_dict['seq_lengths'] = seq_lengths
-
+        pdb.set_trace()
         return dial_ids, turns, batch_dict, actions, attributes
 
 

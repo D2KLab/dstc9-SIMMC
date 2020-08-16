@@ -23,7 +23,7 @@ class BlindStatelessLSTM(nn.Module):
         self.corrections (dict): Mapping from dataset word to its corrections (the corrections is included in the vocabulary)
     """
 
-    _HIDDEN_SIZE = 800
+    _HIDDEN_SIZE = 600
 
 
     def __init__(self, word_embeddings_path, word2id, num_actions, num_attrs, 

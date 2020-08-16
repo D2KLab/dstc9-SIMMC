@@ -2,7 +2,7 @@
 
 Author(s): Satwik Kottur
 """
-import pdb
+
 
 from absl import app, flags
 import collections
@@ -13,7 +13,7 @@ import numpy as np
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
-    "action_json_path", "data/simmc_fashion/devtest/fashion_devtest_dials_api_calls.json", "Ground truth API calls"
+    "action_json_path", "data/furniture_api_calls.json", "Ground truth API calls"
 )
 flags.DEFINE_string(
     "model_output_path", None, "Action API predictions by the model"
@@ -45,9 +45,6 @@ def evaluate_action_prediction(gt_actions, model_actions):
     for model_datum in model_actions:
         dialog_id = model_datum["dialog_id"]
         for round_id, round_datum in enumerate(model_datum["predictions"]):
-            
-            #pdb.set_trace()
-
             gt_datum = gt_actions_pool[dialog_id]["actions"][round_id]
             action_match = gt_datum["action"] == round_datum["action"]
             # Record matches and confusion.
@@ -65,23 +62,18 @@ def evaluate_action_prediction(gt_actions, model_actions):
                 continue
             # Case 1: Action mismatch -- record False for all attributes.
             if not action_match:
-                for _ in supervision.keys():
+                for key in supervision.keys():
+                    if key in IGNORE_ATTRIBUTES:
+                        continue
                     matches["attributes"].append(False)
             # Case 2: Action matches -- use model predictions for attributes.
             else:
-                #pdb.set_trace()
                 for key in supervision.keys():
                     if key in IGNORE_ATTRIBUTES:
                         continue
                     gt_key_vals = supervision[key]
                     model_key_vals = round_datum["attributes"][key]
                     if not len(gt_key_vals):
-                        """
-                        if not len(model_key_vals):
-                            matches['attributes'].append(1.0)
-                        else:
-                            matches['attributes'].append(0.)
-                        """
                         continue
                     # For fashion, this is a list -- multi label prediction.
                     if isinstance(gt_key_vals, list):

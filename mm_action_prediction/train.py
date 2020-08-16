@@ -18,12 +18,12 @@ import os
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,3"  # specify which GPU(s) to be used
 
 
-def instantiate_model(args, word2id):
+def instantiate_model(args, num_actions, num_attrs, word2id):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                num_actions=num_actions,
+                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -32,8 +32,8 @@ def instantiate_model(args, word2id):
     elif args.model == 'blindstateful':
         return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                num_actions=num_actions,
+                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -42,8 +42,8 @@ def instantiate_model(args, word2id):
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
                                 item_embeddings_path=args.metadata_embeddings,
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                num_actions=num_actions,
+                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -112,7 +112,7 @@ def train(train_dataset, dev_dataset, args, device):
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
     os.makedirs(checkpoint_dir, exist_ok=True)
     # prepare logger to redirect both on file and stdout
-    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -134,15 +134,18 @@ def train(train_dataset, dev_dataset, args, device):
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = instantiate_model(args, word2id)
+    model = instantiate_model(args,
+                                num_actions=len(SIMMCDatasetForActionPrediction._LABEL2ACT),
+                                num_attrs=len(SIMMCDatasetForActionPrediction._ATTRS),
+                                word2id=word2id)
     model.to(device)
     print('MODEL NAME: {}'.format(args.model))
     print('NETWORK: {}'.format(model))
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True, #todo set to True
-            'num_workers': 2}
+            'shuffle': False, #todo set to True
+            'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
@@ -155,9 +158,9 @@ def train(train_dataset, dev_dataset, args, device):
     bce_weights = torch.tensor([(attr_tot_support-class_support)/class_support for class_support in attr_per_class])
     #prepare losses and optimizer
     actions_criterion = torch.nn.CrossEntropyLoss().to(device)
-    attributes_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(10.)).to(device)
+    attributes_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=bce_weights).to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(0, args.epochs, 10)), gamma = 0.6) #todo try with gamma=.1
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.75)
 
     #prepare containers for statistics
     losses_trend = {'train': {'global':[], 'actions': [], 'attributes': []}, 
@@ -170,7 +173,7 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = {'global': [], 'actions': [], 'attributes': []}
 
         for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(trainloader):
-
+            #pdb.set_trace()
             actions_loss, attributes_loss, _, _ = forward_step(model, 
                                                                 batch=batch,
                                                                 actions=actions,

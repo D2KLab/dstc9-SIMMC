@@ -36,21 +36,22 @@ id2act = SIMMCDatasetForActionPrediction._LABEL2ACT
 id2attrs = SIMMCDatasetForActionPrediction._ATTRS
 
 
-def instantiate_model(args, word2id):
+def instantiate_model(args, num_actions, num_attrs, word2id):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                num_actions=num_actions,
+                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
-                                OOV_corrections=False)
+                                OOV_corrections=False,
+                                freeze_embeddings=True)
     elif args.model == 'blindstateful':
         return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                num_actions=num_actions,
+                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -59,8 +60,8 @@ def instantiate_model(args, word2id):
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
                                 item_embeddings_path=args.metadata_embeddings,
-                                num_actions=SIMMCFashionConfig._FASHION_ACTION_NO,
-                                num_attrs=SIMMCFashionConfig._FASHION_ATTRS_NO,
+                                num_actions=num_actions,
+                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -209,7 +210,10 @@ if __name__ == '__main__':
 
     word2id = torch.load(args.vocabulary)
 
-    model = instantiate_model(args, word2id)
+    model = instantiate_model(args, 
+                                num_actions=len(SIMMCDatasetForActionPrediction._LABEL2ACT), 
+                                num_attrs=len(SIMMCDatasetForActionPrediction._ATTRS), 
+                                word2id=word2id)
     model.load_state_dict(torch.load(args.model_path))
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])

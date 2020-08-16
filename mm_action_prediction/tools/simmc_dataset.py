@@ -127,7 +127,7 @@ class SIMMCDataset(Dataset):
         if visual_context_dict['focus'] is None:
             visual_context_dict['focus'] = visual_context_dict['history'][-1]
 
-        # dispatch data across different dataset instatiation
+        # dispatch data across different dataset instantiation
         if isinstance(self, SIMMCDatasetForActionPrediction,):
             attributes = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:
@@ -238,6 +238,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
 
     _ACT2LABEL = {'None': 0,'SearchDatabase': 1, 'SearchMemory': 2, 'SpecifyInfo': 3, 'AddToCart': 4}
     _LABEL2ACT = ['None','SearchDatabase', 'SearchMemory', 'SpecifyInfo', 'AddToCart']
+    """
     _ATTR2LABEL = {'embellishment': 0, 'skirtStyle': 1, 'availableSizes': 2, 'dressStyle': 3, 'material': 4, 'clothingStyle': 5, 'jacketStyle': 6, 
                     'sleeveLength': 7, 'soldBy': 8, 'price': 9, 'ageRange': 10, 'hemLength': 11, 'size': 12, 'warmthRating': 13, 'sweaterStyle': 14, 
                     'forGender': 15, 'madeIn': 16, 'info': 17, 'customerRating': 18, 'hemStyle': 19, 'hasPart': 20, 'pattern': 21, 'clothingCategory': 22, 
@@ -248,6 +249,12 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
                     'forGender', 'madeIn', 'info', 'customerRating', 'hemStyle', 'hasPart', 'pattern', 'clothingCategory', 
                     'forOccasion', 'waistStyle', 'sleeveStyle', 'amountInStock', 'waterResistance', 'necklineStyle', 'skirtLength', 
                     'color', 'brand', 'sequential']
+    """
+    _ATTR2LABEL = {'embellishment': 0, 'availableSizes': 1, 'price': 2, 'info': 3, 'customerRating': 4, 
+                    'pattern': 5, 'color': 6, 'brand': 7, 'other': 8}
+    _ATTRS = ['embellishment', 'availableSizes', 'price', 'info', 'customerRating', 'pattern', 'color', 'brand', 'other']
+
+    
 
 
     def __init__(self, data_path, metadata_path, actions_path, verbose=True):
@@ -260,13 +267,12 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
     def __getitem__(self, index):
 
         dial_id, turn, transcript, history, visual_context, action, attributes = super().__getitem__(index)
-
         one_hot_attrs = [0]*(len(self._ATTR2LABEL))
         for attr in attributes:
-            assert attr in self._ATTR2LABEL, 'Unkown attribute \'{}\''.format(attr)
-            assert one_hot_attrs[self._ATTR2LABEL[attr]] == 0, 'Attribute \'{}\' is present multiple times'.format(attr)
-            one_hot_attrs[self._ATTR2LABEL[attr]] = 1
-
+            #assert attr in self._ATTR2LABEL, 'Unkown attribute \'{}\''.format(attr)
+            curr_attr = attr if attr in self._ATTR2LABEL else 'other'
+            #assert one_hot_attrs[self._ATTR2LABEL[curr_attr]] == 0, 'Attribute \'{}\' is present multiple times'.format(attr)
+            one_hot_attrs[self._ATTR2LABEL[curr_attr]] = 1
         return dial_id, turn, transcript, history, visual_context, self._ACT2LABEL[action], one_hot_attrs
 
 
@@ -294,7 +300,7 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
                 'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
 
         #compute frequency for actions
-        act_freq = [0]*5
+        act_freq = [0]*len(self._LABEL2ACT)
         freq_sum = 0
         for dial_id in self.ids:
             for act in self.id2act[dial_id]:
@@ -303,20 +309,36 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
         self.act_support = {'per_class_frequency': act_freq, 'tot_samples': freq_sum}
 
         #compute frequency for attributes
-        attr_freq = [0] * 33
+        attr_freq = [0] * len(self._ATTRS)
         freq_sum = 0
         for dial_id in self.ids:
             for act in self.id2act[dial_id]:
                 if act['action_supervision'] != None:
                     for attr in act['action_supervision']['attributes']:
-                        attr_freq[self._ATTR2LABEL[attr]] += 1
+                        if attr in self._ATTR2LABEL:
+                            attr_freq[self._ATTR2LABEL[attr]] += 1
+                        else:
+                            attr_freq[self._ATTR2LABEL['other']] += 1
                         freq_sum += 1
         self.attr_support = {'per_class_frequency': attr_freq, 'tot_samples': freq_sum}
 
-        """freq_sum = 0
-        for idx, freq in enumerate(attr_freq):
-            print('{}: {}'.format(self._ATTRS[idx], freq))
-            freq_sum += freq
-        print('Total support sum: {}'.format(freq_sum))
         """
+        #print actions distribution
+        print('_______________________')
+        print('[ACTIONS DISTRIBUTION]:')
+        tot_samples = self.act_support['tot_samples']
+        for idx, freq in enumerate(self.act_support['per_class_frequency']):
+            print('{}: \t\t[{}%]: {}'.format(self._LABEL2ACT[idx], round(100*freq/tot_samples), freq))
+        print('Total support sum: {}'.format(tot_samples))
+        print('_______________________')
+        #print attributes distribution
+        print('[ATTRIBUTES DISTRIBUTION]:')
+        tot_samples = self.attr_support['tot_samples']
+        for idx, freq in enumerate(self.attr_support['per_class_frequency']):
+            print('{}: \t\t[{}%]: {}'.format(self._ATTRS[idx], round(100*freq/tot_samples), freq))
+        print('Total support sum: {}'.format(tot_samples))
+        print('_______________________')
+        pdb.set_trace()
+        """
+
         

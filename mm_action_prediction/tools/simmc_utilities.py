@@ -1,8 +1,8 @@
-import matplotlib.pyplot as plt
 import os
-
-
 import sys
+
+import matplotlib.pyplot as plt
+
 
 class Logger(object):
     def __init__(self, log_path):
