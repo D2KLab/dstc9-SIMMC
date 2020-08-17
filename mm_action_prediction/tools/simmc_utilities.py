@@ -58,13 +58,18 @@ def print_annotation_dialogue(dialogue, actions):
         print('+U{}: {} -> {}({})'.format(turn['turn_idx']).item(), turn['transcript'])
         #TODO end this function
     """
-
-    for turn in dialogue:    
+    assert len(dialogue) == len(actions), 'Actions and turns do not match'
+    for turn, act in zip(dialogue, actions):
         print('+U{}: {}\n+A{}: {}'.format(turn['turn_idx'], turn['transcript'], turn['turn_idx'], turn['system_transcript']))
-        print('------- Annotations: turn{}--------'.format(turn['turn_idx']))
+        print('------- Annotations: turn {}--------'.format(turn['turn_idx']))
+        print('+action:{}'.format(act['action']))
+        if act['action_supervision'] is not None:
+            print('+attributes:{}'.format(act['action_supervision']['attributes']))
+        """
         print('+belief_state:{}\n+transcript_annotated{}\n+system_transcript_annotated{}\n+turn_label{}\n+state_graph_0:{}\n+state_graph_1:{}\n+state_graph_2:{}'
                     .format(turn['belief_state'], turn['transcript_annotated'], turn['system_transcript_annotated'], turn['turn_label'], 
                     turn['state_graph_0'], turn['state_graph_1'], turn['state_graph_2']))
+        """
         print('-------------------------------\n\n')
         
 

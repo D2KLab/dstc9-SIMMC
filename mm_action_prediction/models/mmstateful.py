@@ -59,7 +59,8 @@ class MMStatefulLSTM(nn.Module):
                                         self.memory_hidden_size, 
                                         batch_first=True, 
                                         bidirectional=True)
-        self.dropout = nn.Dropout(p=.5)
+        self.utterance_dropout = nn.Dropout(p=.5)
+
         self.item_dim_reduction = nn.Linear(in_features=self.item_embeddings_layer.embedding_dim,
                                             out_features=2*self.memory_hidden_size)
 
@@ -175,7 +176,7 @@ class MMStatefulLSTM(nn.Module):
         
         out1, (h_t, c_t) = self.utterance_encoder(packed_input)
         bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
-        bidirectional_h_t = self.dropout(bidirectional_h_t)
+        bidirectional_h_t = self.utterance_dropout(bidirectional_h_t)
 
         """unpack not needed. We don't use the output
         if seq_lengths is not None:

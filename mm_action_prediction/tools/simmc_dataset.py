@@ -93,7 +93,7 @@ class SIMMCDataset(Dataset):
 
 
     def __getitem__(self, index):
-        # todo for the DSTC keep in mind that all the price values were set to 0 
+        # todo for the DST keep in mind that all the price values were set to 0 
         # todo      --> need to have a mapping to the original prices for the slot detection
         dial_id, turn = self.transcripts[index].split('_')
         dial_id = int(dial_id)

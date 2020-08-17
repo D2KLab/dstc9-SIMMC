@@ -30,7 +30,9 @@ class BlindStatefulLSTM(nn.Module):
                                         self.memory_hidden_size, 
                                         batch_first=True, 
                                         bidirectional=True)
-        self.dropout = nn.Dropout(p=0.5)
+        self.utterance_dropout = nn.Dropout(p=0.75)
+        self.utterance_normlayer = nn.LayerNorm([2*self.memory_hidden_size])
+        
         
         #todo recurrent attention? 
         #self.cross_history_attn = nn.Linear()
@@ -38,15 +40,15 @@ class BlindStatefulLSTM(nn.Module):
         #! this is position agnostic (should not be good)
         self.utterance_memory_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 4*self.memory_hidden_size),
                                                     nn.Tanh(),
-                                                    nn.Dropout(p=.5),
+                                                    nn.Dropout(p=0.75),
                                                     nn.Linear(4*self.memory_hidden_size, 1),
-                                                    nn.Dropout(p=.5)) #todo introduce layerNorm
+                                                    nn.Dropout(p=0.75)) #todo introduce layerNorm
         self.linear_act_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
-                                                    nn.Dropout(p=.5),
+                                                    nn.Dropout(p=0.75),
                                                     nn.ReLU())
         self.linear_attrs_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
-                                                    nn.Dropout(p=.5),
-                                                    nn.ReLU())
+                                                    nn.Dropout(p=0.75),
+                                                    nn.ReLU(),)
 
         self.multiturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
         self.multiturn_attrs_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
@@ -131,6 +133,8 @@ class BlindStatefulLSTM(nn.Module):
                 # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
                 out, (h_t, c_t) = self.utterance_encoder(emb)
                 bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
+                bidirectional_h_t = self.utterance_dropout(bidirectional_h_t)
+                bidirectional_h_t = self.utterance_normlayer(bidirectional_h_t)
                 hiddens.append(bidirectional_h_t.squeeze(0))
             assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
             encoded_batch_history.append(torch.stack(hiddens))
@@ -145,7 +149,8 @@ class BlindStatefulLSTM(nn.Module):
         
         out1, (h_t, c_t) = self.utterance_encoder(packed_input)
         bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
-        bidirectional_h_t = self.dropout(bidirectional_h_t)
+        bidirectional_h_t = self.utterance_dropout(bidirectional_h_t)
+        bidirectional_h_t = self.utterance_normlayer(bidirectional_h_t)
 
         """unpack not needed. We don't use the output
         if seq_lengths is not None:
@@ -206,7 +211,6 @@ class BlindStatefulLSTM(nn.Module):
         attributes = torch.tensor([item[6] for item in batch])
 
         # words to ids for the history
-        #todo do pack padded sequence for history also
         word2id = self.word_embeddings_layer.word2id
         unk_token = self.word_embeddings_layer.unk_token
         history_seq_ids = []
@@ -250,7 +254,7 @@ class BlindStatefulLSTM(nn.Module):
         batch_dict['utterances'] = seq_tensor
         batch_dict['history'] = history_seq_ids
         batch_dict['seq_lengths'] = seq_lengths
-        pdb.set_trace()
+
         return dial_ids, turns, batch_dict, actions, attributes
 
 

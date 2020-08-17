@@ -4,6 +4,7 @@ import math
 import pdb
 import time
 import sys
+import random
 
 import numpy as np
 import torch
@@ -11,11 +12,11 @@ from torch.utils.data import DataLoader
 
 from models import BlindStatelessLSTM, BlindStatefulLSTM, MMStatefulLSTM
 from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction, plotting_loss,
-                   TrainConfig, SIMMCFashionConfig, Logger, print_annotation_dialogue)
+                   TrainConfig, Logger, print_annotation_dialogue)
 
 import os
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-#os.environ["CUDA_VISIBLE_DEVICES"]="0,3"  # specify which GPU(s) to be used
+#os.environ["CUDA_VISIBLE_DEVICES"]="0,5"  # specify which GPU(s) to be used
 
 
 def instantiate_model(args, num_actions, num_attrs, word2id):
@@ -104,15 +105,20 @@ def forward_step(model, batch, actions, attributes, actions_criterion, attribute
 
 
 def train(train_dataset, dev_dataset, args, device):
-    #print_annotation_dialogue(train_dataset.id2dialog[822]['dialogue'], None)
-    #pdb.set_trace()
-
+    """
+    for _ in range(5):
+        rand_id = random.randint(0, len(train_dataset.ids))
+        dial_id = train_dataset.ids[rand_id]
+        print('+ID: {}'.format(dial_id))
+        print_annotation_dialogue(train_dataset.id2dialog[dial_id]['dialogue'], train_dataset.id2act[dial_id])
+        pdb.set_trace()
+    """
     # prepare checkpoint folder
     curr_date = datetime.datetime.now().isoformat().split('.')[0]
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
     os.makedirs(checkpoint_dir, exist_ok=True)
     # prepare logger to redirect both on file and stdout
-    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -144,8 +150,8 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': False, #todo set to True
-            'num_workers': 0}
+            'shuffle': True, #todo set to True
+            'num_workers': 2}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
@@ -160,7 +166,8 @@ def train(train_dataset, dev_dataset, args, device):
     actions_criterion = torch.nn.CrossEntropyLoss().to(device)
     attributes_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=bce_weights).to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.75)
+    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
+    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': {'global':[], 'actions': [], 'attributes': []}, 
@@ -228,7 +235,8 @@ def train(train_dataset, dev_dataset, args, device):
                                     losses_trend['dev']['actions'][-1],
                                     losses_trend['dev']['attributes'][-1],
                                     optimizer.param_groups[0]['lr']))
-        scheduler.step()
+        scheduler1.step()
+        scheduler2.step(losses_trend['dev']['global'][-1])
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60
