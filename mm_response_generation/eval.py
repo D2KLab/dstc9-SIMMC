@@ -11,37 +11,23 @@ from tools import (SIMMCDatasetForActionPrediction, plotting_loss, TrainConfig)
 
 """expected form for model output
     [
-        {
-            "dialog_id": ...,  
-            "predictions": [
-                {
-                    "action": <predicted_action>,
-                    "action_log_prob": {
-                        <action_token>: <action_log_prob>,
-                        ...
-                    },
-                    "attributes": {
-                        <attribute_label>: <attribute_val>,
-                        ...
-                    }
-                }
-            ]
-        }
+	{
+		"dialog_id": <dialog_id>,
+		"candidate_scores": [
+			<list of 100 scores for 100 candidates for round 1>
+			<list of 100 scores for 100 candidates for round 2>
+			...
+		]
+	}
+	...
     ]
-
-    Where <attribute_label> is "focus" or "attributes" (only "attributes" for fashion dataset).
 """
 
-id2act = SIMMCDatasetForActionPrediction._LABEL2ACT
-id2attrs = SIMMCDatasetForActionPrediction._ATTRS
 
-
-def instantiate_model(args, num_actions, num_attrs, word2id):
+def instantiate_model(args, word2id):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=num_actions,
-                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -50,8 +36,6 @@ def instantiate_model(args, num_actions, num_attrs, word2id):
     elif args.model == 'blindstateful':
         return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=num_actions,
-                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -60,8 +44,6 @@ def instantiate_model(args, num_actions, num_attrs, word2id):
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
                                 item_embeddings_path=args.metadata_embeddings,
-                                num_actions=num_actions,
-                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -74,7 +56,7 @@ def create_eval_dict(dataset):
     eval_dict = {}
     for dial_id in dataset.id2dialog:
         num_turns = len(dataset.id2dialog[dial_id]['dialogue'])
-        eval_dict[dial_id] = {'dialog_id': dial_id, 'predictions': [None] * num_turns}
+        eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': [] * num_turns}
     return eval_dict
 
 
@@ -92,7 +74,7 @@ def eval(model, test_dataset, args, save_folder, device):
 
     eval_dict = create_eval_dict(test_dataset)
     with torch.no_grad():
-        for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(testloader):
+        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
             dial_id = dial_ids[0]
             turn = turns[0]
@@ -101,31 +83,11 @@ def eval(model, test_dataset, args, save_folder, device):
             actions = actions.to(device)
             attributes = attributes.to(device)
 
-            actions_out, attributes_out, actions_probs, attributes_probs = model(**batch, device=device)
+            _, matching_scores = model(**batch, device=device)
 
-            #get predicted action and arguments
-            actions_predictions = torch.argmax(actions_probs, dim=-1)
-            attributes_predictions = []
-            for batch_idx, t in enumerate(attributes_probs):
-                attributes_predictions.append([])
-                for pos, val in enumerate(t):
-                    if val >= .5:
-                        attributes_predictions[batch_idx].append(pos)
-
-            actions_predictions = actions_predictions[0].item()
-            attributes_predictions = attributes_predictions[0]
-
-            predicted_action = SIMMCDatasetForActionPrediction._LABEL2ACT[actions_predictions]
-            action_log_prob = {}
-            for idx, prob in enumerate(actions_probs[0]):
-                action_log_prob[SIMMCDatasetForActionPrediction._LABEL2ACT[idx]] = torch.log(prob).item()
-            attributes = {}
-            #for arg in args_predictions:
-            attributes['attributes'] = [SIMMCDatasetForActionPrediction._ATTRS[attr] for attr in attributes_predictions]
-            
-            eval_dict[dial_id]['predictions'][turn] = {'action': predicted_action, 
-                                                        'action_log_prob': action_log_prob, 
-                                                        'attributes': attributes}
+            #get retrieved response index in the pool
+            #retrieved_response_idx = torch.argmax(matching_scores, dim=-1)
+            eval_dict[dial_id]['candidate_scores'][turn] = matching_scores.tolist()
 
     eval_list = []
     for key in eval_dict:
@@ -185,6 +147,11 @@ if __name__ == '__main__':
         required=True,
         help="Path to metadata embeddings file")
     parser.add_argument(
+        "--candidates",
+        type=str,
+        required=True,
+        help="Path to training candidates response annotations file")
+    parser.add_argument(
         "--actions",
         default=None,
         type=str,
@@ -198,7 +165,7 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    test_dataset = SIMMCDatasetForActionPrediction(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions)
+    test_dataset = SIMMCDatasetForResponseGeneration(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions, candidates_path=args.candidates)
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 
     eval_dict = create_eval_dict(test_dataset)
@@ -211,9 +178,7 @@ if __name__ == '__main__':
     word2id = torch.load(args.vocabulary)
 
     model = instantiate_model(args, 
-                                num_actions=len(SIMMCDatasetForActionPrediction._LABEL2ACT), 
-                                num_attrs=len(SIMMCDatasetForActionPrediction._ATTRS), 
-                                word2id=word2id)
+                            word2id=word2id)
     model.load_state_dict(torch.load(args.model_path))
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])

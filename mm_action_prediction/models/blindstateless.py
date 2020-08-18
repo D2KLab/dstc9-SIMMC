@@ -131,13 +131,18 @@ class BlindStatelessLSTM(nn.Module):
         seq_tensor = seq_tensor[perm_idx]
         actions = actions[perm_idx]
         attributes = attributes[perm_idx]
+        sorted_dial_ids = []
+        sorted_dial_turns = []
+        for idx in perm_idx:
+            sorted_dial_ids.append(dial_ids[idx])
+            sorted_dial_turns.append(turns[idx])
 
         batch_dict = {}
         batch_dict['utterances'] = seq_tensor
         batch_dict['seq_lengths'] = seq_lengths
 
         # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, batch_dict, actions, attributes
+        return sorted_dial_ids, sorted_dial_turns, batch_dict, actions, attributes
 
 
     def __str__(self):

@@ -118,7 +118,7 @@ def train(train_dataset, dev_dataset, args, device):
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
     os.makedirs(checkpoint_dir, exist_ok=True)
     # prepare logger to redirect both on file and stdout
-    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -150,8 +150,8 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True, #todo set to True
-            'num_workers': 2}
+            'shuffle': False, #todo set to True
+            'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)

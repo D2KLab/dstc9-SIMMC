@@ -21,12 +21,10 @@ from tools import Logger, plotting_loss
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,5"  # specify which GPU(s) to be used
 
 
-def instantiate_model(args, num_actions, num_attrs, word2id):
+def instantiate_model(args, word2id):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=num_actions,
-                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -35,8 +33,6 @@ def instantiate_model(args, num_actions, num_attrs, word2id):
     elif args.model == 'blindstateful':
         return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                num_actions=num_actions,
-                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -45,8 +41,6 @@ def instantiate_model(args, num_actions, num_attrs, word2id):
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
                                 item_embeddings_path=args.metadata_embeddings,
-                                num_actions=num_actions,
-                                num_attrs=num_attrs,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -57,41 +51,27 @@ def instantiate_model(args, num_actions, num_attrs, word2id):
 
 def plotting(epochs, losses_trend, checkpoint_dir):
     epoch_list = np.arange(1, epochs+1)
-    losses = [(losses_trend['train']['global'], 'blue', 'train'), 
-                (losses_trend['dev']['global'], 'red', 'validation')]
+    losses = [(losses_trend['train'], 'blue', 'train'), 
+                (losses_trend['dev'], 'red', 'validation')]
 
     loss_path = os.path.join(checkpoint_dir, 'global_loss_plot')
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Global loss trend', x_label='epochs', y_label='loss')
 
-    losses = [(losses_trend['train']['actions'], 'green', 'train'), 
-                (losses_trend['dev']['actions'], 'purple', 'validation')]
 
-    loss_path = os.path.join(checkpoint_dir, 'actions_loss_plot')
-    plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Actions loss trend', x_label='epochs', y_label='loss')
-
-    losses = [(losses_trend['train']['attributes'], 'orange', 'train'), 
-                (losses_trend['dev']['attributes'], 'black', 'validation')]
-
-    loss_path = os.path.join(checkpoint_dir, 'attributes_loss_plot')
-    plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Arguments loss trend', x_label='epochs', y_label='loss')
-
-
-def forward_step(model, batch, actions, attributes, actions_criterion, attributes_criterion, device):
+def forward_step(model, batch, candidates_pool, response_criterion, device):
 
     batch['utterances'] = batch['utterances'].to(device)
-    actions_targets = actions.to(device)
-    attributes_targets = attributes.to(device)
 
-    actions_logits, attributes_logits, actions_probs, attributes_probs = model(**batch, device=device)
+    matching_logits, matching_scores = model(**batch,
+                                            candidates_pool=candidates_pool,
+                                            device=device)
 
-    actions_loss = actions_criterion(actions_logits, actions_targets)
-    attributes_targets = attributes_targets.type_as(actions_logits)
-    attributes_loss = attributes_criterion(attributes_logits, attributes_targets)
+    matching_targets = torch.zeros(batch['utterances'].shape[0], 100).to(device)
+    # the true response is always the first in the list of candidates
+    matching_targets[:, 0] = 1.0
+    response_loss = response_criterion(matching_logits, matching_targets)
 
-    actions_predictions = None
-    attributes_predictions = None
-
-    return actions_loss, attributes_loss, actions_predictions, attributes_predictions
+    return response_loss
 
 
 def train(train_dataset, dev_dataset, args, device):
@@ -123,10 +103,7 @@ def train(train_dataset, dev_dataset, args, device):
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = instantiate_model(args,
-                                num_actions=5,
-                                num_attrs=5,
-                                word2id=word2id)
+    model = instantiate_model(args, word2id=word2id)
     model.to(device)
     print('MODEL NAME: {}'.format(args.model))
     print('NETWORK: {}'.format(model))
@@ -140,14 +117,14 @@ def train(train_dataset, dev_dataset, args, device):
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
     #prepare losses and optimizer
-    response_criterion = torch.nn.CrossEntropyLoss().to(device)
+    response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
 
     #prepare containers for statistics
-    losses_trend = {'train': {'global':[], 'actions': [], 'attributes': []}, 
-                    'dev': {'global':[], 'actions': [], 'attributes': []}}
+    losses_trend = {'train': [], 
+                    'dev': []}
 
     best_loss = math.inf
     start_t = time.time()
@@ -155,41 +132,37 @@ def train(train_dataset, dev_dataset, args, device):
     for epoch in range(args.epochs):
         model.train()
         curr_epoch_losses = []
-
-        for curr_step, (dial_ids, turns, batch, actions, attributes, response, distractors) in enumerate(trainloader):
+        # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
+        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader):
             pdb.set_trace()
-            actions_loss, attributes_loss, _, _ = forward_step(model, 
-                                                                batch=batch,
-                                                                actions=actions,
-                                                                attributes=attributes,
-                                                                response_criterion=response_criterion,
-                                                                device=device)
+            response_loss = forward_step(model, 
+                                        batch=batch,
+                                        candidates_pool=candidates_pool,
+                                        response_criterion=response_criterion,
+                                        device=device)
             #backward
             optimizer.zero_grad()
-            loss = (actions_loss + attributes_loss)/2
-            loss.backward()
+            response_loss.backward()
             optimizer.step()
+            pdb.set_trace()
 
-            curr_epoch_losses.append(loss.item())
+            curr_epoch_losses.append(response_loss.item())
         losses_trend['train'].append(np.mean(curr_epoch_losses))
 
         model.eval()
         curr_epoch_losses = []
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(devloader):
 
-                actions_loss, attributes_loss, _, _ = forward_step(model, 
-                                                                    batch=batch,
-                                                                    actions=actions,
-                                                                    attributes=attributes,
-                                                                    actions_criterion=actions_criterion,
-                                                                    attributes_criterion=attributes_criterion,
-                                                                    device=device)
-                loss = (actions_loss + attributes_loss)/2
+                response_loss = forward_step(model, 
+                                            batch=batch,
+                                            candidates_pool=candidates_pool,
+                                            response_criterion=response_criterion,
+                                            device=device)
+                curr_epoch_losses.append(response_loss.item())
 
-                curr_epoch_losses.append(loss.item())
         losses_trend['dev'].append(np.mean(curr_epoch_losses))
-
+        pdb.set_trace()
         # save checkpoint if best model
         if losses_trend['dev'][-1] < best_loss:
             best_loss = losses_trend['dev'][-1]
@@ -197,14 +170,12 @@ def train(train_dataset, dev_dataset, args, device):
                        os.path.join(checkpoint_dir, 'state_dict.pt'))
             model.to(device)
         
-        print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f} [act_loss={:.4f}, attr_loss={:.4f}]; (lr={})'
-                            .format(epoch+1, losses_trend['train']['global'][-1], 
-                                    losses_trend['dev']['global'][-1],
-                                    losses_trend['dev']['actions'][-1],
-                                    losses_trend['dev']['attributes'][-1],
-                                    optimizer.param_groups[0]['lr']))
+        print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f} ; (lr={})'.format(epoch+1, 
+                                                                                    losses_trend['train'][-1], 
+                                                                                    losses_trend['dev'][-1],
+                                                                                    optimizer.param_groups[0]['lr']))
         scheduler1.step()
-        scheduler2.step(losses_trend['dev']['global'][-1])
+        scheduler2.step(losses_trend['dev'][-1])
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60

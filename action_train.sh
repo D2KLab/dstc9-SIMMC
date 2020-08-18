@@ -1,8 +1,8 @@
 #/usr/bin/bash
 
-#export MODEL=blindstateless
+export MODEL=blindstateless
 #export MODEL=blindstateful
-export MODEL=mmstateful
+#export MODEL=mmstateful
 
 export DATASET_PATH=data/simmc_fashion/train/fashion_train_dials.json
 export METADATA_PATH=data/simmc_fashion/fashion_metadata.json

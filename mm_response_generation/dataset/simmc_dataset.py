@@ -134,7 +134,7 @@ class SIMMCDataset(Dataset):
                 attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
             return_tuple = (dial_id, turn, current_transcript, history, visual_context_dict, self.id2act[dial_id][turn]['action'], attributes)
             if isinstance(self, SIMMCDatasetForResponseGeneration,):
-                return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],)
+                return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],) #todo fetch from processed list
             return return_tuple
 
 
@@ -241,7 +241,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                 'hemStyle': 'hem style', 'hasPart': 'has part', 'clothingCategory': 'clothing category', 'forOccasion': 'for occasion', 'waistStyle': 'waist style', 
                 'sleeveStyle': 'sleeve style', 'amountInStock': 'amount in stock', 'waterResistance': 'water resistance', 'necklineStyle': 'neckline style', 
                 'skirtLength': 'skirt length'}
-    _ACT2STR = {'SearchDatabase': 'search database', 'SearchMemory': 'search memory', 'SpecifyInfo': 'specify info', 'AddToCart': 'add to cart'}
+    _ACT2STR = {'None': 'none', 'SearchDatabase': 'search database', 'SearchMemory': 'search memory', 'SpecifyInfo': 'specify info', 'AddToCart': 'add to cart'}
 
     def __init__(self, data_path, metadata_path, actions_path, candidates_path, verbose=True):
         super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
@@ -250,17 +250,29 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         self.load_actions(actions_path)
         self.load_candidates(candidates_path)
 
+        self.processed_candidates = []
+        tokenizer = WordPunctTokenizer()
+
+        for candidate in self.candidates:
+            curr_candidate = ''
+            tokens = tokenizer.tokenize(candidate)
+            for tok in tokens:
+                cleaned_tok = self.token_clean(tok)
+                if cleaned_tok not in self.vocabulary:
+                    self.vocabulary.add(cleaned_tok)
+                curr_candidate += cleaned_tok + ' '
+            self.processed_candidates.append(curr_candidate[:-1]) #avoid last space
+
 
     def __getitem__(self, index):
         dial_id, turn, transcript, history, visual_context, action, attributes, candidates_ids = super().__getitem__(index)
         #convert action and attributes to english string
-        action = action if action not in self._ACT2STR else self._ACT2STR[action]
-        attributes = [attr if attr not in self._ATTR2STR else self._ATTR2STR[attr] for attr in attributes]
+        action = action.lower() if action not in self._ACT2STR else self._ACT2STR[action]
+        attributes = [attr.lower() if attr not in self._ATTR2STR else self._ATTR2STR[attr] for attr in attributes]
 
-        candidate_responses = [self.candidates[candidate_id] for candidate_id in candidates_ids]
-        true_response, distractors = candidate_responses[0], candidate_responses[1:]
-        
-        return dial_id, turn, transcript, history, visual_context, action, attributes, true_response, distractors
+        candidate_responses = [self.processed_candidates[candidate_id] for candidate_id in candidates_ids]
+
+        return dial_id, turn, transcript, history, visual_context, action, attributes, candidate_responses
 
 
     def __len__(self):
@@ -303,7 +315,6 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
             assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
                 'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
 
-    
 
 class SIMMCDatasetForActionPrediction(SIMMCDataset):
     """Dataset wrapper for SIMMC Fashion for api call prediction subtask

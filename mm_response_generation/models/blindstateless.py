@@ -26,8 +26,8 @@ class BlindStatelessLSTM(nn.Module):
     _HIDDEN_SIZE = 600
 
 
-    def __init__(self, word_embeddings_path, word2id, num_actions, num_attrs, 
-                        pad_token, unk_token, seed, OOV_corrections=False, freeze_embeddings=False):
+    def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, 
+                    seed, OOV_corrections=False, freeze_embeddings=False):
         """
         Glove download: https://nlp.stanford.edu/projects/glove/
 
@@ -49,11 +49,10 @@ class BlindStatelessLSTM(nn.Module):
 
         self.lstm = nn.LSTM(self.word_embeddings_layer.embedding_dim, self.hidden_size, batch_first=True)
         self.dropout = nn.Dropout(p=0.5)
-        self.actions_linear = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
-        self.attrs_linear = nn.Linear(in_features=self.hidden_size, out_features=num_attrs)
+        self.matching_layer = nn.Linear(in_features=2*self.hidden_size, out_features=1)
 
 
-    def forward(self, utterances, seq_lengths=None, device='cpu'):
+    def forward(self, utterances, actions, attributes, candidates_pool, seq_lengths=None, device='cpu'):
         """Forward pass for BlindStatelessLSTM
 
         Args:
@@ -66,24 +65,50 @@ class BlindStatelessLSTM(nn.Module):
         if seq_lengths is not None:
             # pack padded sequence
             packed_input = pack_padded_sequence(embedded_seq_tensor, seq_lengths.cpu().numpy(), batch_first=True)
-        
-        out1, (h_t, c_t) = self.lstm(packed_input)
+        # h_t has shape NUM_DIRxBxHIDDEN_SIZE
+        out, (h_t, c_t) = self.lstm(packed_input)
 
         """unpack not needed. We don't use the output
         if seq_lengths is not None:
             # unpack padded sequence
             output, input_sizes = pad_packed_sequence(out1, batch_first=True)
         """
-        h_t = self.dropout(h_t)
-        # h_t has shape NUM_DIRxBxHIDDEN_SIZE
-        actions_logits = self.actions_linear(h_t[0])
-        attrs_logits = self.attrs_linear(h_t[0])
+        utterance_hiddens = self.dropout(h_t.squeeze(0))
 
-        #out2.shape = BxNUM_LABELS
-        actions_probs = F.softmax(actions_logits, dim=-1)
-        attrs_probs = torch.sigmoid(attrs_logits)
-        return actions_logits, attrs_logits, actions_probs, attrs_probs
+        # tensors_pool has shape BATCH_SIZEx100xHIDDEN_SIZE
+        tensors_pool = self.encode_pool(candidates_pool, device)
 
+        # build pairs (utterance, candidate[i]) for computing similarity
+        assert utterance_hiddens.shape[0] == tensors_pool.shape[0], 'Problem with first dimension'
+        matching_pairs = []
+        for utterance, candidate in zip(utterance_hiddens, tensors_pool):
+            matching_pairs.append(torch.cat((utterance.expand(candidate.shape[0], -1), candidate), dim=-1))
+        matching_pairs = torch.stack(matching_pairs)
+
+        # matching_pairs has shape Bx100x2*HIDDEN_SIZE
+        #pdb.set_trace()
+        matching_logits = []
+        for pair in matching_pairs:
+            matching_logits.append(self.matching_layer(pair))
+        matching_logits = torch.stack(matching_logits).squeeze(-1)
+        matching_scores = torch.sigmoid(matching_logits)
+
+        return matching_logits, matching_scores
+
+
+    def encode_pool(self, candidates_pool, device):
+        tensors_pool = []
+        for pool in candidates_pool:
+            curr_hiddens = []
+            for candidate in pool:
+                embeddings = self.word_embeddings_layer(candidate.to(device))
+                _, (h_t, _) = self.lstm(embeddings.unsqueeze(0))
+                curr_hiddens.append(h_t.squeeze(0).squeeze(0))
+            tensors_pool.append(torch.stack(curr_hiddens))
+        tensors_pool = torch.stack(tensors_pool)
+
+        return tensors_pool
+     
 
     def collate_fn(self, batch):
         """This method prepares the batch for the LSTM: padding + preparation for pack_padded_sequence
@@ -101,24 +126,69 @@ class BlindStatelessLSTM(nn.Module):
         """
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
-        actions = torch.tensor([item[5] for item in batch])
-        attributes = torch.tensor([item[6] for item in batch])
-        true_responses = torch.tensor([item[7] for item in batch])
-        distractors = torch.tensor([item[8] for item in batch])
+        transcripts =  [item[2] for item in batch]
+        actions = [item[5] for item in batch]
+        attributes = [item[6] for item in batch]
+        responses_pool = [item[7] for item in batch]
 
         # transform words to ids
         seq_ids = []
         word2id = self.word_embeddings_layer.word2id
         unk_token = self.word_embeddings_layer.unk_token
-        for item in batch:
+        for transcript in transcripts:
             curr_seq = []
-            for word in item[2].split():
+            for word in transcript.split():
                 if word in word2id:
                     curr_seq.append(word2id[word])
                 else:
                     curr_seq.append(word2id[unk_token])
-            seq_ids.append(curr_seq)
-        
+            seq_ids.append(torch.tensor(curr_seq, dtype=torch.long))
+
+        # convert response candidates to word ids
+        resp_ids = []
+        for item in responses_pool:
+            curr_candidate = []
+            for resp in item:
+                curr_seq = []
+                for word in resp.split():
+                    if word in word2id:
+                        curr_seq.append(word2id[word])
+                    else:
+                        curr_seq.append(word2id[unk_token])
+                curr_candidate.append(torch.tensor(curr_seq, dtype=torch.long))
+            resp_ids.append(curr_candidate)
+
+        #convert actions and attributes to word ids
+        act_ids = []
+        for act in actions:
+            curr_seq = []
+            for word in act.split():
+                if word in word2id:
+                    curr_seq.append(word2id[word])
+                else:
+                    curr_seq.append(word2id[unk_token])
+            act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
+        attr_ids = []
+        for attr in attributes:
+            curr_attributes = []
+            for attr in item:
+                curr_seq = []
+                for word in attr.split():
+                    if word in word2id:
+                        curr_seq.append(word2id[word])
+                    else:
+                        curr_seq.append(word2id[unk_token])
+                curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
+            attr_ids.append(curr_attributes)
+
+        assert len(seq_ids) == len(dial_ids), 'Batch sizes do not match'
+        assert len(seq_ids) == len(turns), 'Batch sizes do not match'
+        assert len(seq_ids) == len(act_ids), 'Batch sizes do not match'
+        assert len(seq_ids) == len(attr_ids), 'Batch sizes do not match'
+        assert len(seq_ids) == len(resp_ids), 'Batch sizes do not match'
+
+        # reorder the sequences from the longest one to the shortest one.
+        # keep the correspondance with the target
         seq_lengths = torch.tensor(list(map(len, seq_ids)), dtype=torch.long)
         seq_tensor = torch.zeros((len(seq_ids), seq_lengths.max()), dtype=torch.long)
 
@@ -127,21 +197,26 @@ class BlindStatelessLSTM(nn.Module):
 
         # sort instances by sequence length in descending order
         seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
-
-        # reorder the sequences from the longest one to the shortest one.
-        # keep the correspondance with the target
         seq_tensor = seq_tensor[perm_idx]
-        actions = actions[perm_idx]
-        attributes = attributes[perm_idx]
-        
-        #todo convert action and attributes to word id
-        
+        sorted_dial_ids = []
+        sorted_dial_turns = []
+        sorted_actions = []
+        sorted_attributes = []
+        sorted_responses = []
+        for idx in perm_idx:
+            sorted_dial_ids.append(dial_ids[idx])
+            sorted_dial_turns.append(turns[idx])
+            sorted_actions.append(act_ids[idx])
+            sorted_attributes.append(attr_ids[idx])
+            sorted_responses.append(resp_ids[idx])
         batch_dict = {}
         batch_dict['utterances'] = seq_tensor
         batch_dict['seq_lengths'] = seq_lengths
+        batch_dict['actions'] = sorted_actions
+        batch_dict['attributes'] = sorted_attributes
 
         # seq_lengths is used to create a pack_padded_sequence
-        return dial_ids, turns, batch_dict, actions, attributes
+        return sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses
 
 
     def __str__(self):
