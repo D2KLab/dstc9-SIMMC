@@ -79,7 +79,7 @@ def train(train_dataset, dev_dataset, args, device):
     # prepare checkpoint folder
     curr_date = datetime.datetime.now().isoformat().split('.')[0]
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
-    #os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
+    os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
     # prepare logger to redirect both on file and stdout
     #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
@@ -99,7 +99,7 @@ def train(train_dataset, dev_dataset, args, device):
     word2id[TrainConfig._UNK_TOKEN] = 1
     for idx, word in enumerate(vocabulary):
         word2id[word] = idx+2
-    #torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
+    torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
@@ -110,8 +110,8 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': False, #todo set to True
-            'num_workers': 0}
+            'shuffle': True, #todo set to True
+            'num_workers': 1}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
@@ -128,13 +128,14 @@ def train(train_dataset, dev_dataset, args, device):
 
     best_loss = math.inf
     start_t = time.time()
-    #todo continue to adapt code from here
     for epoch in range(args.epochs):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
         for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader):
-            pdb.set_trace()
+            #todo save processed samples on file and load from there
+            print(curr_step)
+            #pdb.set_trace()
             response_loss = forward_step(model, 
                                         batch=batch,
                                         candidates_pool=candidates_pool,
@@ -144,7 +145,6 @@ def train(train_dataset, dev_dataset, args, device):
             optimizer.zero_grad()
             response_loss.backward()
             optimizer.step()
-            pdb.set_trace()
 
             curr_epoch_losses.append(response_loss.item())
         losses_trend['train'].append(np.mean(curr_epoch_losses))
@@ -162,7 +162,6 @@ def train(train_dataset, dev_dataset, args, device):
                 curr_epoch_losses.append(response_loss.item())
 
         losses_trend['dev'].append(np.mean(curr_epoch_losses))
-        pdb.set_trace()
         # save checkpoint if best model
         if losses_trend['dev'][-1] < best_loss:
             best_loss = losses_trend['dev'][-1]

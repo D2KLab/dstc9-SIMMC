@@ -6,8 +6,9 @@ import pdb
 import torch
 from torch.utils.data import DataLoader
 
-from models import BlindStatelessLSTM, BlindStatefulLSTM
-from tools import (SIMMCDatasetForActionPrediction, plotting_loss, TrainConfig)
+from config import TrainConfig
+from models import BlindStatefulLSTM, BlindStatelessLSTM
+from tools import SIMMCDatasetForActionPrediction, plotting_loss
 
 """expected form for model output
     [

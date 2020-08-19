@@ -255,7 +255,7 @@ class BlindStatefulLSTM(nn.Module):
         for idx in perm_idx:
             sorted_dial_ids.append(dial_ids[idx])
             sorted_dial_turns.append(turns[idx])
-            sorted_dial_history.append(history_seq_ids)
+            sorted_dial_history.append(history_seq_ids[idx])
 
         batch_dict = {}
         batch_dict['utterances'] = seq_tensor

@@ -60,7 +60,6 @@ class BlindStatelessLSTM(nn.Module):
             seq_lengths (torch.LongTensor, optional): Effective lengths (no pad) of each sequence in the batch. If given the pack_padded__sequence are used.
                                                         The shape is B. Defaults to None.
         """
-
         embedded_seq_tensor = self.word_embeddings_layer(utterances)
         if seq_lengths is not None:
             # pack padded sequence
@@ -86,7 +85,6 @@ class BlindStatelessLSTM(nn.Module):
         matching_pairs = torch.stack(matching_pairs)
 
         # matching_pairs has shape Bx100x2*HIDDEN_SIZE
-        #pdb.set_trace()
         matching_logits = []
         for pair in matching_pairs:
             matching_logits.append(self.matching_layer(pair))

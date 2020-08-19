@@ -1,20 +1,21 @@
-import datetime
 import argparse
+import datetime
 import math
+import os
 import pdb
-import time
-import sys
 import random
+import sys
+import time
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from models import BlindStatelessLSTM, BlindStatefulLSTM, MMStatefulLSTM
-from tools import (SIMMCDataset, SIMMCDatasetForActionPrediction, plotting_loss,
-                   TrainConfig, Logger, print_annotation_dialogue)
+from config import TrainConfig
+from models import BlindStatefulLSTM, BlindStatelessLSTM, MMStatefulLSTM
+from tools import (Logger, SIMMCDataset, SIMMCDatasetForActionPrediction,
+                   plotting_loss, print_annotation_dialogue)
 
-import os
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,5"  # specify which GPU(s) to be used
 
