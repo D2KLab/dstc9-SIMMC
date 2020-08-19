@@ -231,7 +231,6 @@ class SIMMCDataset(Dataset):
         return '{}_{}_{}_v{}'.format(self.domain, self.split, self.year, self.version)
 
 
-
 class SIMMCDatasetForActionPrediction(SIMMCDataset):
     """Dataset wrapper for SIMMC Fashion for api call prediction subtask
     """

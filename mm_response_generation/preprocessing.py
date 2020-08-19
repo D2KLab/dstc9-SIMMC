@@ -28,7 +28,7 @@ def save_data_on_file(iterator, save_path):
     visual_context_list = {'focus': [], 'history': []}
     seq_lengths_list = []
     candidate_list = []
-    for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(iterator):
+    for dial_ids, turns, batch, candidates_pool in iterator:
         dial_id_list.append(dial_ids[0])
         turn_list.append(turns)
         utterance_list.append(batch['utterances'][0])

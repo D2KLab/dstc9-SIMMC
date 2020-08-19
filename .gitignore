@@ -14,6 +14,7 @@ glove.*
 
 #tensors
 *.npy
+*.pkl
 
 #checkpoint
 checkpoints
