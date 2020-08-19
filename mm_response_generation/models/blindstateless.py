@@ -129,7 +129,7 @@ class BlindStatelessLSTM(nn.Module):
         attributes = [item[6] for item in batch]
         responses_pool = [item[7] for item in batch]
 
-        # transform words to ids
+        # words to ids for the current utterance
         seq_ids = []
         word2id = self.word_embeddings_layer.word2id
         unk_token = self.word_embeddings_layer.unk_token
@@ -144,9 +144,9 @@ class BlindStatelessLSTM(nn.Module):
 
         # convert response candidates to word ids
         resp_ids = []
-        for item in responses_pool:
+        for resps in responses_pool:
             curr_candidate = []
-            for resp in item:
+            for resp in resps:
                 curr_seq = []
                 for word in resp.split():
                     if word in word2id:
@@ -167,9 +167,9 @@ class BlindStatelessLSTM(nn.Module):
                     curr_seq.append(word2id[unk_token])
             act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
         attr_ids = []
-        for attr in attributes:
+        for attrs in attributes:
             curr_attributes = []
-            for attr in item:
+            for attr in attrs:
                 curr_seq = []
                 for word in attr.split():
                     if word in word2id:
@@ -181,9 +181,9 @@ class BlindStatelessLSTM(nn.Module):
 
         assert len(seq_ids) == len(dial_ids), 'Batch sizes do not match'
         assert len(seq_ids) == len(turns), 'Batch sizes do not match'
+        assert len(seq_ids) == len(resp_ids), 'Batch sizes do not match'
         assert len(seq_ids) == len(act_ids), 'Batch sizes do not match'
         assert len(seq_ids) == len(attr_ids), 'Batch sizes do not match'
-        assert len(seq_ids) == len(resp_ids), 'Batch sizes do not match'
 
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
