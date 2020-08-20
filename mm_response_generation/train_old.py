@@ -12,8 +12,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from config import TrainConfig
-from dataset import FastDataset
+from dataset import SIMMCDatasetForResponseGeneration
 from models import BlindStatelessLSTM
+#from models import BlindStatelessLSTM, BlindStatefulLSTM, MMStatefulLSTM
 from tools import Logger, plotting_loss
 
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -188,18 +189,6 @@ def train(train_dataset, dev_dataset, args, device):
 
 
 if __name__ == '__main__':
-    """example
-    python mm_response_generation/train2.py\
-        --model mmstateful\
-        --data data/simmc_fashion/train/data.npy\
-        --eval data/simmc_fashion/dev/data.npy\
-        --vocabulary data/simmc_fashion/vocabulary.pkl\
-        --embeddings embeddings/glove.6B.300d.txt\
-        --metadata_embeddings data/simmc_fashion/fashion_metadata_embeddings.npy\
-        --batch_size 1\
-        --epochs 10\
-        --cuda 0
-    """
 
     parser = argparse.ArgumentParser()
 
@@ -213,17 +202,17 @@ if __name__ == '__main__':
         "--data",
         type=str,
         required=True,
-        help="Path to preprocessed training data file .npy")
+        help="Path to training dataset JSON file")
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        required=True,
+        help="Path to metadata JSON file")
     parser.add_argument(
         "--eval",
         type=str,
         required=True,
-        help="Path to preprocessed eval data file .npy")
-    parser.add_argument(
-        "--vocabulary",
-        type=str,
-        required=True,
-        help="Path to vocabulary file")
+        help="Path to validation JSON file")
     parser.add_argument(
         "--embeddings",
         type=str,
@@ -234,6 +223,26 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to metadata embeddings file")
+    parser.add_argument(
+        "--candidates",
+        type=str,
+        required=True,
+        help="Path to training candidates response annotations file")
+    parser.add_argument(
+        "--eval_candidates",
+        type=str,
+        required=True,
+        help="Path to validation candidates response annotations file")    
+    parser.add_argument(
+        "--actions",
+        type=str,
+        required=True,
+        help="Path to training action annotations file")
+    parser.add_argument(
+        "--eval_actions",
+        type=str,
+        required=True,
+        help="Path to validation action annotations file")
     parser.add_argument(
         "--batch_size",
         required=True,
@@ -252,8 +261,8 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    train_dataset = FastDataset(npy_path=args.data)
-    dev_dataset = FastDataset(npy_path=args.eval)
+    train_dataset = SIMMCDatasetForResponseGeneration(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions, candidates_path=args.candidates)
+    dev_dataset = SIMMCDatasetForResponseGeneration(data_path=args.eval, metadata_path=args.metadata, actions_path=args.eval_actions, candidates_path=args.eval_candidates)
 
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 

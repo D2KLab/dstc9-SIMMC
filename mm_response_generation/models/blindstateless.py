@@ -122,80 +122,31 @@ class BlindStatelessLSTM(nn.Module):
             actions (torch.Longtensor): tensor with B shape containing target actions
             arguments (torch.Longtensor): tensor with Bx33 shape containing arguments one-hot vectors, one for each sample.
         """
+
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
-        transcripts =  [item[2] for item in batch]
-        actions = [item[5] for item in batch]
-        attributes = [item[6] for item in batch]
-        responses_pool = [item[7] for item in batch]
+        transcripts = [torch.tensor(item[2]) for item in batch]
+        actions = [item[4] for item in batch]
+        attributes = [item[5] for item in batch]
+        responses_pool = [item[8] for item in batch]
 
-        # words to ids for the current utterance
-        seq_ids = []
-        word2id = self.word_embeddings_layer.word2id
-        unk_token = self.word_embeddings_layer.unk_token
-        for transcript in transcripts:
-            curr_seq = []
-            for word in transcript.split():
-                if word in word2id:
-                    curr_seq.append(word2id[word])
-                else:
-                    curr_seq.append(word2id[unk_token])
-            seq_ids.append(torch.tensor(curr_seq, dtype=torch.long))
-
-        # convert response candidates to word ids
-        resp_ids = []
-        for resps in responses_pool:
-            curr_candidate = []
-            for resp in resps:
-                curr_seq = []
-                for word in resp.split():
-                    if word in word2id:
-                        curr_seq.append(word2id[word])
-                    else:
-                        curr_seq.append(word2id[unk_token])
-                curr_candidate.append(torch.tensor(curr_seq, dtype=torch.long))
-            resp_ids.append(curr_candidate)
-
-        #convert actions and attributes to word ids
-        act_ids = []
-        for act in actions:
-            curr_seq = []
-            for word in act.split():
-                if word in word2id:
-                    curr_seq.append(word2id[word])
-                else:
-                    curr_seq.append(word2id[unk_token])
-            act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
-        attr_ids = []
-        for attrs in attributes:
-            curr_attributes = []
-            for attr in attrs:
-                curr_seq = []
-                for word in attr.split():
-                    if word in word2id:
-                        curr_seq.append(word2id[word])
-                    else:
-                        curr_seq.append(word2id[unk_token])
-                curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
-            attr_ids.append(curr_attributes)
-
-        assert len(seq_ids) == len(dial_ids), 'Batch sizes do not match'
-        assert len(seq_ids) == len(turns), 'Batch sizes do not match'
-        assert len(seq_ids) == len(resp_ids), 'Batch sizes do not match'
-        assert len(seq_ids) == len(act_ids), 'Batch sizes do not match'
-        assert len(seq_ids) == len(attr_ids), 'Batch sizes do not match'
+        assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
+        assert len(transcripts) == len(turns), 'Batch sizes do not match'
+        assert len(transcripts) == len(responses_pool), 'Batch sizes do not match'
+        assert len(transcripts) == len(actions), 'Batch sizes do not match'
+        assert len(transcripts) == len(attributes), 'Batch sizes do not match'
 
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
-        seq_lengths = torch.tensor(list(map(len, seq_ids)), dtype=torch.long)
-        seq_tensor = torch.zeros((len(seq_ids), seq_lengths.max()), dtype=torch.long)
+        transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
+        transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
 
-        for idx, (seq, seqlen) in enumerate(zip(seq_ids, seq_lengths)):
-            seq_tensor[idx, :seqlen] = torch.tensor(seq, dtype=torch.long)
+        for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
+            transcripts_tensor[idx, :seqlen] = seq.clone().detach()
 
         # sort instances by sequence length in descending order
-        seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
-        seq_tensor = seq_tensor[perm_idx]
+        transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
+        transcripts_tensor = transcripts_tensor[perm_idx]
         sorted_dial_ids = []
         sorted_dial_turns = []
         sorted_actions = []
@@ -204,12 +155,12 @@ class BlindStatelessLSTM(nn.Module):
         for idx in perm_idx:
             sorted_dial_ids.append(dial_ids[idx])
             sorted_dial_turns.append(turns[idx])
-            sorted_actions.append(act_ids[idx])
-            sorted_attributes.append(attr_ids[idx])
-            sorted_responses.append(resp_ids[idx])
+            sorted_actions.append(actions[idx])
+            sorted_attributes.append(attributes[idx])
+            sorted_responses.append(responses_pool[idx])
         batch_dict = {}
-        batch_dict['utterances'] = seq_tensor
-        batch_dict['seq_lengths'] = seq_lengths
+        batch_dict['utterances'] = transcripts_tensor
+        batch_dict['seq_lengths'] = transcripts_lengths
         batch_dict['actions'] = sorted_actions
         batch_dict['attributes'] = sorted_attributes
 

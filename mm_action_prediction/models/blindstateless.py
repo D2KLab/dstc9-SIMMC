@@ -101,34 +101,26 @@ class BlindStatelessLSTM(nn.Module):
         """
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
-        actions = torch.tensor([item[5] for item in batch])
-        attributes = torch.tensor([item[6] for item in batch])
+        transcripts = [torch.tensor(item[2]) for item in batch]
+        actions = torch.tensor([item[4] for item in batch])
+        attributes = torch.stack([item[5] for item in batch])
 
-        # transform words to ids
-        seq_ids = []
-        word2id = self.word_embeddings_layer.word2id
-        unk_token = self.word_embeddings_layer.unk_token
-        for item in batch:
-            curr_seq = []
-            for word in item[2].split():
-                if word in word2id:
-                    curr_seq.append(word2id[word])
-                else:
-                    curr_seq.append(word2id[unk_token])
-            seq_ids.append(curr_seq)
+        assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
+        assert len(transcripts) == len(turns), 'Batch sizes do not match'
+        assert len(transcripts) == actions.shape[0], 'Batch sizes do not match'
+        assert len(transcripts) == attributes.shape[0], 'Batch sizes do not match'
         
-        seq_lengths = torch.tensor(list(map(len, seq_ids)), dtype=torch.long)
-        seq_tensor = torch.zeros((len(seq_ids), seq_lengths.max()), dtype=torch.long)
-
-        for idx, (seq, seqlen) in enumerate(zip(seq_ids, seq_lengths)):
-            seq_tensor[idx, :seqlen] = torch.tensor(seq, dtype=torch.long)
-
-        # sort instances by sequence length in descending order
-        seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
-
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
-        seq_tensor = seq_tensor[perm_idx]
+        transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
+        transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
+
+        for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
+            transcripts_tensor[idx, :seqlen] = seq.clone().detach()
+
+        # sort instances by sequence length in descending order
+        transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
+        transcripts_tensor = transcripts_tensor[perm_idx]
         actions = actions[perm_idx]
         attributes = attributes[perm_idx]
         sorted_dial_ids = []
@@ -138,8 +130,8 @@ class BlindStatelessLSTM(nn.Module):
             sorted_dial_turns.append(turns[idx])
 
         batch_dict = {}
-        batch_dict['utterances'] = seq_tensor
-        batch_dict['seq_lengths'] = seq_lengths
+        batch_dict['utterances'] = transcripts_tensor
+        batch_dict['seq_lengths'] = transcripts_lengths
 
         # seq_lengths is used to create a pack_padded_sequence
         return sorted_dial_ids, sorted_dial_turns, batch_dict, actions, attributes

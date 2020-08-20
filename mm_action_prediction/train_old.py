@@ -13,8 +13,8 @@ from torch.utils.data import DataLoader
 
 from config import TrainConfig
 from models import BlindStatefulLSTM, BlindStatelessLSTM, MMStatefulLSTM
-from utilities import Logger, plotting_loss
-from dataset import FastDataset
+from utilities import (Logger, SIMMCDataset, SIMMCDatasetForActionPrediction,
+                   plotting_loss, print_annotation_dialogue)
 
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,5"  # specify which GPU(s) to be used
@@ -106,7 +106,14 @@ def forward_step(model, batch, actions, attributes, actions_criterion, attribute
 
 
 def train(train_dataset, dev_dataset, args, device):
-
+    """
+    for _ in range(5):
+        rand_id = random.randint(0, len(train_dataset.ids))
+        dial_id = train_dataset.ids[rand_id]
+        print('+ID: {}'.format(dial_id))
+        print_annotation_dialogue(train_dataset.id2dialog[dial_id]['dialogue'], train_dataset.id2act[dial_id])
+        pdb.set_trace()
+    """
     # prepare checkpoint folder
     curr_date = datetime.datetime.now().isoformat().split('.')[0]
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
@@ -122,9 +129,9 @@ def train(train_dataset, dev_dataset, args, device):
     print('VALIDATION DATASET: {}'.format(dev_dataset))
 
     # prepare model's vocabulary
-    with open(args.vocabulary, 'rb') as fp:
-        vocabulary = np.load(fp, allow_pickle=True)
-        vocabulary = dict(vocabulary.item())
+    vocabulary_train = train_dataset.get_vocabulary()
+    vocabulary_dev = dev_dataset.get_vocabulary()
+    vocabulary = vocabulary_train.union(vocabulary_dev)
     word2id = {}
     word2id[TrainConfig._PAD_TOKEN] = 0
     word2id[TrainConfig._UNK_TOKEN] = 1
@@ -133,13 +140,11 @@ def train(train_dataset, dev_dataset, args, device):
     torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
-    assert train_dataset.num_actions == dev_dataset.num_actions, 'Number of actions mismatch between train and dev dataset'
-    assert train_dataset.num_attributes == dev_dataset.num_attributes, 'Number of actions mismatch between train and dev dataset'
     # prepare model
     model = instantiate_model(args,
-                            num_actions=train_dataset.num_actions,
-                            num_attrs=train_dataset.num_attributes,
-                            word2id=word2id)
+                                num_actions=len(SIMMCDatasetForActionPrediction._LABEL2ACT),
+                                num_attrs=len(SIMMCDatasetForActionPrediction._ATTRS),
+                                word2id=word2id)
     model.to(device)
     print('MODEL NAME: {}'.format(args.model))
     print('NETWORK: {}'.format(model))
@@ -149,6 +154,7 @@ def train(train_dataset, dev_dataset, args, device):
             'shuffle': False, #todo set to True
             'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
+
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
     #prepare loss weights
@@ -175,6 +181,7 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = {'global': [], 'actions': [], 'attributes': []}
 
         for curr_step, (dial_ids, turns, batch, actions, attributes) in enumerate(trainloader):
+            #pdb.set_trace()
             actions_loss, attributes_loss, _, _ = forward_step(model, 
                                                                 batch=batch,
                                                                 actions=actions,
@@ -258,17 +265,17 @@ if __name__ == '__main__':
         "--data",
         type=str,
         required=True,
-        help="Path to preprocessed training data file .dat")
+        help="Path to training dataset JSON file")
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        required=True,
+        help="Path to metadata JSON file")
     parser.add_argument(
         "--eval",
         type=str,
         required=True,
-        help="Path to preprocessed eval data file .dat")
-    parser.add_argument(
-        "--vocabulary",
-        type=str,
-        required=True,
-        help="Path to vocabulary file")
+        help="Path to validation JSON file")
     parser.add_argument(
         "--embeddings",
         type=str,
@@ -279,6 +286,16 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to metadata embeddings file")
+    parser.add_argument(
+        "--actions",
+        type=str,
+        required=True,
+        help="Path to training action annotations file")
+    parser.add_argument(
+        "--eval_actions",
+        type=str,
+        required=True,
+        help="Path to validation action annotations file")
     parser.add_argument(
         "--batch_size",
         required=True,
@@ -297,8 +314,8 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    train_dataset = FastDataset(dat_path=args.data)
-    dev_dataset = FastDataset(dat_path=args.eval)
+    train_dataset = SIMMCDatasetForActionPrediction(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions)
+    dev_dataset = SIMMCDatasetForActionPrediction(data_path=args.eval, metadata_path=args.metadata, actions_path=args.eval_actions)
 
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 

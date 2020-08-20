@@ -3,6 +3,7 @@ import datetime
 import math
 import os
 import pdb
+import pickle
 import random
 import sys
 import time
@@ -12,10 +13,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from config import TrainConfig
-from dataset import SIMMCDatasetForResponseGeneration
+from dataset import FastDataset
 from models import BlindStatelessLSTM
-#from models import BlindStatelessLSTM, BlindStatefulLSTM, MMStatefulLSTM
-from tools import Logger, plotting_loss
+from utilities import Logger, plotting_loss
 
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"]="0,5"  # specify which GPU(s) to be used
@@ -81,7 +81,7 @@ def train(train_dataset, dev_dataset, args, device):
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
     os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
     # prepare logger to redirect both on file and stdout
-    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -91,15 +91,15 @@ def train(train_dataset, dev_dataset, args, device):
     print('VALIDATION DATASET: {}'.format(dev_dataset))
 
     # prepare model's vocabulary
-    vocabulary_train = train_dataset.get_vocabulary()
-    vocabulary_dev = dev_dataset.get_vocabulary()
-    vocabulary = vocabulary_train.union(vocabulary_dev)
+    with open(args.vocabulary, 'rb') as fp:
+        vocabulary = np.load(fp, allow_pickle=True)
+        vocabulary = dict(vocabulary.item())
     word2id = {}
     word2id[TrainConfig._PAD_TOKEN] = 0
     word2id[TrainConfig._UNK_TOKEN] = 1
     for idx, word in enumerate(vocabulary):
         word2id[word] = idx+2
-    torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
+    np.save(os.path.join(checkpoint_dir, 'vocabulary.pkl'), word2id) #todo uncomment before first training
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
@@ -110,14 +110,14 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True, #todo set to True
-            'num_workers': 1}
+            'shuffle': False, #todo set to True
+            'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
 
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
     #prepare losses and optimizer
-    response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
+    response_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(10.)).to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
@@ -132,10 +132,8 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader):
-            #todo save processed samples on file and load from there
-            print(curr_step)
-            #pdb.set_trace()
+        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(devloader): #todo change to trainloader
+            #print(curr_step)
             response_loss = forward_step(model, 
                                         batch=batch,
                                         candidates_pool=candidates_pool,
@@ -202,17 +200,17 @@ if __name__ == '__main__':
         "--data",
         type=str,
         required=True,
-        help="Path to training dataset JSON file")
-    parser.add_argument(
-        "--metadata",
-        type=str,
-        required=True,
-        help="Path to metadata JSON file")
+        help="Path to preprocessed training data file .dat")
     parser.add_argument(
         "--eval",
         type=str,
         required=True,
-        help="Path to validation JSON file")
+        help="Path to preprocessed eval data file .dat")
+    parser.add_argument(
+        "--vocabulary",
+        type=str,
+        required=True,
+        help="Path to vocabulary file")
     parser.add_argument(
         "--embeddings",
         type=str,
@@ -223,26 +221,6 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to metadata embeddings file")
-    parser.add_argument(
-        "--candidates",
-        type=str,
-        required=True,
-        help="Path to training candidates response annotations file")
-    parser.add_argument(
-        "--eval_candidates",
-        type=str,
-        required=True,
-        help="Path to validation candidates response annotations file")    
-    parser.add_argument(
-        "--actions",
-        type=str,
-        required=True,
-        help="Path to training action annotations file")
-    parser.add_argument(
-        "--eval_actions",
-        type=str,
-        required=True,
-        help="Path to validation action annotations file")
     parser.add_argument(
         "--batch_size",
         required=True,
@@ -261,8 +239,8 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    train_dataset = SIMMCDatasetForResponseGeneration(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions, candidates_path=args.candidates)
-    dev_dataset = SIMMCDatasetForResponseGeneration(data_path=args.eval, metadata_path=args.metadata, actions_path=args.eval_actions, candidates_path=args.eval_candidates)
+    train_dataset = FastDataset(dat_path=args.data)
+    dev_dataset = FastDataset(dat_path=args.eval)
 
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 

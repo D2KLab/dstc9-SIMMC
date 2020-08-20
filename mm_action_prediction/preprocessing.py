@@ -11,10 +11,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+import sys
 sys.path.append('.')
 
 from config import TrainConfig
-from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
+from tools.simmc_dataset import SIMMCDatasetForActionPrediction
 
 
 
@@ -30,9 +31,8 @@ class Collate():
         turns = [item[1] for item in batch]
         history = [item[3] for item in batch]
         visual_context = [item[4] for item in batch]
-        actions = [item[5] for item in batch]
-        attributes = [item[6] for item in batch]
-        responses_pool = [item[7] for item in batch]
+        actions = torch.tensor([item[5] for item in batch])
+        attributes = torch.tensor([item[6] for item in batch])
 
         # words to ids for the current utterance
         utterance_seq_ids = []
@@ -57,38 +57,6 @@ class Collate():
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
 
-        # convert response candidates to word ids
-        resp_ids = []
-        for resps in responses_pool:
-            curr_candidate = []
-            for resp in resps:
-                curr_seq = []
-                for word in resp.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                    curr_seq.append(word_id)
-                curr_candidate.append(torch.tensor(curr_seq, dtype=torch.long))
-            resp_ids.append(curr_candidate)
-
-        #convert actions and attributes to word ids
-        act_ids = []
-        for act in actions:
-            curr_seq = []
-            for word in act.split():
-                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                curr_seq.append(word_id)
-            act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
-
-        attr_ids = []
-        for attrs in attributes:
-            curr_attributes = []
-            for attr in attrs:
-                curr_seq = []
-                for word in attr.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                    curr_seq.append(word_id)
-                curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
-            attr_ids.append(curr_attributes)
-
         # item to id for the visual context
         visual_ids = {'focus': [], 'history': []}
         for v in visual_context:
@@ -107,20 +75,17 @@ class Collate():
         assert len(utterance_seq_ids) == len(dial_ids), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(turns), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(history_seq_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(resp_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(act_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(attr_ids), 'Batch sizes do not match'
+        assert len(utterance_seq_ids) == actions.shape[0], 'Batch sizes do not match'
+        assert len(utterance_seq_ids) == attributes.shape[0], 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(visual_ids['focus']), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(visual_ids['history']), 'Batch sizes do not match'
 
         batch_dict = {}
         batch_dict['utterances'] = utterance_seq_ids
         batch_dict['history'] = history_seq_ids
-        batch_dict['actions'] = act_ids
-        batch_dict['attributes'] = attr_ids
         batch_dict['visual_context'] = visual_ids
 
-        return dial_ids, turns, batch_dict, resp_ids
+        return dial_ids, turns, batch_dict, actions, attributes
 
 
 def save_data_on_file(iterator, save_path):
@@ -131,28 +96,29 @@ def save_data_on_file(iterator, save_path):
     actions_list = []
     attributes_list = []
     visual_context_list = {'focus': [], 'history': []}
-    candidate_list = []
-    for dial_ids, turns, batch, candidates_pool in iterator:
+    for dial_ids, turns, batch, actions, attributes in iterator:
         dial_id_list.append(dial_ids[0])
         turn_list.append(turns[0])
         utterance_list.append(batch['utterances'][0])
         history_list.append(batch['history'][0])
-        actions_list.append(batch['actions'][0])
-        attributes_list.append(batch['attributes'][0])
+        actions_list.append(actions[0])
+        attributes_list.append(attributes[0])
         visual_context_list['focus'].append(batch['visual_context']['focus'][0])
         visual_context_list['history'].append(batch['visual_context']['history'][0])
-        candidate_list.append(candidates_pool[0])
-    
+
     torch.save(
         {
             'dial_ids': dial_id_list,
             'turns': turn_list,
             'utterances': utterance_list,
             'histories': history_list,
-            'actions': actions_list,
-            'attributes': attributes_list,
+            'actions': torch.stack(actions_list),
+            'attributes': torch.stack(attributes_list),
             'visual_contexts': visual_context_list,
-            'candidates': candidate_list 
+            'num_actions': len(SIMMCDatasetForActionPrediction._LABEL2ACT),
+            'num_attributes': len(SIMMCDatasetForActionPrediction._ATTRS),
+            'actions_support': iterator.dataset.act_support,
+            'attributes_support': iterator.dataset.attr_support
         },
         save_path
     )
@@ -173,7 +139,7 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     word2id[TrainConfig._UNK_TOKEN] = 1
     for idx, word in enumerate(vocabulary):
         word2id[word] = idx+2
-    np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
+    np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id) #todo uncomment
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     raw_data = np.load(args.metadata_embeddings, allow_pickle=True)
@@ -192,9 +158,9 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
     start_t = time.time()
 
-    save_data_on_file(iterator=trainloader, save_path=os.path.join(args.train_folder, 'response_retrieval_data.dat'))
-    save_data_on_file(iterator=devloader, save_path=os.path.join(args.dev_folder, 'response_retrieval_data.dat'))
-    save_data_on_file(iterator=testloader, save_path=os.path.join(args.test_folder, 'response_retrieval_data.dat'))
+    save_data_on_file(iterator=trainloader, save_path=os.path.join(args.train_folder, 'action_prediction_data.dat'))
+    save_data_on_file(iterator=devloader, save_path=os.path.join(args.dev_folder, 'action_prediction_data.dat'))
+    save_data_on_file(iterator=testloader, save_path=os.path.join(args.test_folder, 'action_prediction_data.dat'))
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60
@@ -247,19 +213,15 @@ if __name__ == '__main__':
     
     dataset_path = '{}/fashion_{}_dials.json'
     actions_path = '{}/fashion_{}_dials_api_calls.json'
-    candidates_path = '{}/fashion_{}_dials_retrieval_candidates.json'
 
-    train_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.train_folder, 'train'), 
+    train_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.train_folder, 'train'), 
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.train_folder, 'train'), 
-                                                    candidates_path=candidates_path.format(args.train_folder, 'train'))
-    dev_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.dev_folder, 'dev'),
+                                                    actions_path=actions_path.format(args.train_folder, 'train'))
+    dev_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.dev_folder, 'dev'),
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.dev_folder, 'dev'), 
-                                                    candidates_path=candidates_path.format(args.dev_folder, 'dev'))
-    test_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.test_folder, 'devtest'), 
+                                                    actions_path=actions_path.format(args.dev_folder, 'dev'))
+    test_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.test_folder, 'devtest'), 
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.test_folder, 'devtest'), 
-                                                    candidates_path=candidates_path.format(args.test_folder, 'devtest'))
+                                                    actions_path=actions_path.format(args.test_folder, 'devtest'))
 
     preprocess(train_dataset, dev_dataset, test_dataset, args)

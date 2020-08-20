@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 from config import TrainConfig
 from models import BlindStatefulLSTM, BlindStatelessLSTM
-from tools import SIMMCDatasetForActionPrediction, plotting_loss
+from utilities import SIMMCDatasetForActionPrediction, plotting_loss
 
 """expected form for model output
     [

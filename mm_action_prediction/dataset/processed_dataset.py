@@ -15,17 +15,22 @@ class FastDataset(Dataset):
         super(FastDataset, self).__init__()
         self.data = torch.load(dat_path)
         self.dataset_name = 'SIMMC'
-        self.task = 'response_retrienval'
+        self.task = 'action_prediction'
+        self.num_actions = self.data['num_actions']
+        self.num_attributes = self.data['num_attributes']
+        self.act_support = self.data['actions_support']
+        self.attr_support = self.data['attributes_support']
+
 
     def __getitem__(self, index):
 
         return self.data['dial_ids'][index], self.data['turns'][index], self.data['utterances'][index],\
                 self.data['histories'][index], self.data['actions'][index], self.data['attributes'][index],\
-                self.data['visual_contexts']['focus'][index], self.data['visual_contexts']['history'][index],\
-                self.data['candidates'][index]
+                self.data['visual_contexts']['focus'][index], self.data['visual_contexts']['history'][index],
 
     def __len__(self):
         return len(self.data['utterances'])
+
 
     def ___str__(self):
         return '{}_subtask({})'.format(self.dataset_name, self.task)

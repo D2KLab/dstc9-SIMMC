@@ -254,9 +254,9 @@ class MMStatefulLSTM(nn.Module):
 
         return weighted_sum
 
-
+    """
     def collate_fn(self, batch):
-        """This method prepares the batch for the LSTM: padding + preparation for pack_padded_sequence
+        This method prepares the batch for the LSTM: padding + preparation for pack_padded_sequence
 
         Args:
             batch (tuple): tuple of element returned by the Dataset.__getitem__()
@@ -268,7 +268,7 @@ class MMStatefulLSTM(nn.Module):
             seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence
             actions (torch.Longtensor): tensor with B shape containing target actions
             attributes (torch.Longtensor): tensor with Bx33 shape containing attributes one-hot vectors, one for each sample.
-        """
+        
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
         history = [item[3] for item in batch]
@@ -284,7 +284,7 @@ class MMStatefulLSTM(nn.Module):
         for item in batch:
             curr_seq = []
             for word in item[2].split():
-                word_id = word2id[word] if word in word2id else word2id[unk_token]
+                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
                 curr_seq.append(word_id)
             utterance_seq_ids.append(curr_seq)
 
@@ -297,7 +297,7 @@ class MMStatefulLSTM(nn.Module):
                 concat_sentences = item[t][0] + ' ' + item[t][1] #? separator token
                 curr_seq = []
                 for word in concat_sentences.split():
-                    word_id = word2id[word] if word in word2id else word2id[unk_token]
+                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
                     curr_seq.append(word_id)
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
@@ -309,10 +309,8 @@ class MMStatefulLSTM(nn.Module):
             for resp in resps:
                 curr_seq = []
                 for word in resp.split():
-                    if word in word2id:
-                        curr_seq.append(word2id[word])
-                    else:
-                        curr_seq.append(word2id[unk_token])
+                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    curr_seq.append(word2id[word])
                 curr_candidate.append(torch.tensor(curr_seq, dtype=torch.long))
             resp_ids.append(curr_candidate)
 
@@ -321,10 +319,8 @@ class MMStatefulLSTM(nn.Module):
         for act in actions:
             curr_seq = []
             for word in act.split():
-                if word in word2id:
-                    curr_seq.append(word2id[word])
-                else:
-                    curr_seq.append(word2id[unk_token])
+                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                curr_seq.append(word_id)
             act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
 
         attr_ids = []
@@ -333,10 +329,8 @@ class MMStatefulLSTM(nn.Module):
             for attr in attrs:
                 curr_seq = []
                 for word in attr.split():
-                    if word in word2id:
-                        curr_seq.append(word2id[word])
-                    else:
-                        curr_seq.append(word2id[unk_token])
+                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    curr_seq.append(word_id)
                 curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
             attr_ids.append(curr_attributes)
 
@@ -344,10 +338,10 @@ class MMStatefulLSTM(nn.Module):
         item2id = self.item_embeddings_layer.item2id
         visual_ids = {'focus': [], 'history': []}
         for v in visual_context:
-            curr_focus = item2id[v['focus']]
+            curr_focus = self.item2id[v['focus']]
             curr_history = []
             for vv in v['history']:
-                v_id = item2id[vv]
+                v_id = self.item2id[vv]
                 curr_history.append(torch.tensor(v_id))
             visual_ids['focus'].append(torch.tensor(curr_focus))
             if len(curr_history):
@@ -405,3 +399,4 @@ class MMStatefulLSTM(nn.Module):
 
     def __str__(self):
         return super().__str__()
+    """
