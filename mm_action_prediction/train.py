@@ -112,7 +112,7 @@ def train(train_dataset, dev_dataset, args, device):
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
     os.makedirs(checkpoint_dir, exist_ok=True)
     # prepare logger to redirect both on file and stdout
-    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -125,12 +125,8 @@ def train(train_dataset, dev_dataset, args, device):
     with open(args.vocabulary, 'rb') as fp:
         vocabulary = np.load(fp, allow_pickle=True)
         vocabulary = dict(vocabulary.item())
-    word2id = {}
-    word2id[TrainConfig._PAD_TOKEN] = 0
-    word2id[TrainConfig._UNK_TOKEN] = 1
-    for idx, word in enumerate(vocabulary):
-        word2id[word] = idx+2
-    torch.save(word2id, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
+
+    torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     assert train_dataset.num_actions == dev_dataset.num_actions, 'Number of actions mismatch between train and dev dataset'
@@ -139,7 +135,7 @@ def train(train_dataset, dev_dataset, args, device):
     model = instantiate_model(args,
                             num_actions=train_dataset.num_actions,
                             num_attrs=train_dataset.num_attributes,
-                            word2id=word2id)
+                            word2id=vocabulary)
     model.to(device)
     print('MODEL NAME: {}'.format(args.model))
     print('NETWORK: {}'.format(model))

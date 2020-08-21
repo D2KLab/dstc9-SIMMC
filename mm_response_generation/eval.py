@@ -2,12 +2,18 @@ import argparse
 import json
 import os
 import pdb
+import sys
 
 import torch
 from torch.utils.data import DataLoader
 
-from models import BlindStatelessLSTM, BlindStatefulLSTM
-from tools import (SIMMCDatasetForActionPrediction, plotting_loss, TrainConfig)
+sys.path.append('.')
+
+from config import TrainConfig
+from dataset import FastDataset
+from models import BlindStatelessLSTM
+from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
+
 
 """expected form for model output
     [
@@ -53,10 +59,10 @@ def instantiate_model(args, word2id):
 
 
 def create_eval_dict(dataset):
+    dataset.create_id2turns()
     eval_dict = {}
-    for dial_id in dataset.id2dialog:
-        num_turns = len(dataset.id2dialog[dial_id]['dialogue'])
-        eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': [] * num_turns}
+    for dial_id, num_turns in dataset.id2turns.items():
+        eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': []}
     return eval_dict
 
 
@@ -80,14 +86,12 @@ def eval(model, test_dataset, args, save_folder, device):
             turn = turns[0]
 
             batch['utterances'] = batch['utterances'].to(device)
-            actions = actions.to(device)
-            attributes = attributes.to(device)
 
-            _, matching_scores = model(**batch, device=device)
+            _, matching_scores = model(**batch, candidates_pool=candidates_pool, device=device)
 
             #get retrieved response index in the pool
             #retrieved_response_idx = torch.argmax(matching_scores, dim=-1)
-            eval_dict[dial_id]['candidate_scores'][turn] = matching_scores.tolist()
+            eval_dict[dial_id]['candidate_scores'].append(matching_scores.squeeze(0).tolist())
 
     eval_list = []
     for key in eval_dict:
@@ -99,6 +103,7 @@ def eval(model, test_dataset, args, save_folder, device):
         print('results saved in {}'.format(save_file))
     except:
         print('Error in writing the resulting JSON')
+
 
 
 if __name__ == '__main__':
@@ -130,12 +135,6 @@ if __name__ == '__main__':
         required=True,
         help="Path to training dataset json file")
     parser.add_argument(
-        "--metadata",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to metadata json file")
-    parser.add_argument(
         "--embeddings",
         default=None,
         type=str,
@@ -147,17 +146,6 @@ if __name__ == '__main__':
         required=True,
         help="Path to metadata embeddings file")
     parser.add_argument(
-        "--candidates",
-        type=str,
-        required=True,
-        help="Path to training candidates response annotations file")
-    parser.add_argument(
-        "--actions",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to training action annotations file")
-    parser.add_argument(
         "--cuda",
         default=None,
         required=False,
@@ -165,16 +153,13 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    test_dataset = SIMMCDatasetForResponseGeneration(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions, candidates_path=args.candidates)
+    test_dataset = FastDataset(dat_path=args.data)
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 
     eval_dict = create_eval_dict(test_dataset)
     print('EVAL DATASET: {}'.format(test_dataset))
 
     # prepare model
-    vocabulary_test = test_dataset.get_vocabulary()
-    print('VOCABULARY SIZE: {}'.format(len(vocabulary_test)))
-
     word2id = torch.load(args.vocabulary)
 
     model = instantiate_model(args, 

@@ -10,6 +10,7 @@ class SIMMCFashionConfig():
 class TrainConfig():
 
     _SEED = 240797
+    _DISTRACTORS_SAMPLING = 9 #put to -1 to avoid sampling
     _LEARNING_RATE = 1e-3
     _WEIGHT_DECAY = 1e-2
     _PAD_TOKEN = '[PAD]'

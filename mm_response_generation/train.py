@@ -18,7 +18,7 @@ from models import BlindStatelessLSTM
 from utilities import Logger, plotting_loss
 
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-#os.environ["CUDA_VISIBLE_DEVICES"]="0,5"  # specify which GPU(s) to be used
+#os.environ["CUDA_VISIBLE_DEVICES"]="0,2,4"  # specify which GPU(s) to be used
 
 
 def instantiate_model(args, word2id):
@@ -58,7 +58,7 @@ def plotting(epochs, losses_trend, checkpoint_dir):
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Global loss trend', x_label='epochs', y_label='loss')
 
 
-def forward_step(model, batch, candidates_pool, response_criterion, device):
+def forward_step(model, batch, candidates_pool, response_criterion, candidates_pool_size, device):
 
     batch['utterances'] = batch['utterances'].to(device)
 
@@ -66,7 +66,7 @@ def forward_step(model, batch, candidates_pool, response_criterion, device):
                                             candidates_pool=candidates_pool,
                                             device=device)
 
-    matching_targets = torch.zeros(batch['utterances'].shape[0], 100).to(device)
+    matching_targets = torch.zeros(batch['utterances'].shape[0], candidates_pool_size).to(device)
     # the true response is always the first in the list of candidates
     matching_targets[:, 0] = 1.0
     response_loss = response_criterion(matching_logits, matching_targets)
@@ -94,30 +94,25 @@ def train(train_dataset, dev_dataset, args, device):
     with open(args.vocabulary, 'rb') as fp:
         vocabulary = np.load(fp, allow_pickle=True)
         vocabulary = dict(vocabulary.item())
-    word2id = {}
-    word2id[TrainConfig._PAD_TOKEN] = 0
-    word2id[TrainConfig._UNK_TOKEN] = 1
-    for idx, word in enumerate(vocabulary):
-        word2id[word] = idx+2
-    np.save(os.path.join(checkpoint_dir, 'vocabulary.pkl'), word2id) #todo uncomment before first training
+
+    torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = instantiate_model(args, word2id=word2id)
+    model = instantiate_model(args, word2id=vocabulary)
     model.to(device)
     print('MODEL NAME: {}'.format(args.model))
     print('NETWORK: {}'.format(model))
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': False, #todo set to True
+            'shuffle': True, #todo set to True
             'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
-
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
     #prepare losses and optimizer
-    response_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(10.)).to(device) #pos_weight=torch.tensor(10.)
+    response_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(100.)).to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
@@ -126,6 +121,7 @@ def train(train_dataset, dev_dataset, args, device):
     losses_trend = {'train': [], 
                     'dev': []}
 
+    candidates_pools_size = 100 if TrainConfig._DISTRACTORS_SAMPLING < 0 else TrainConfig._DISTRACTORS_SAMPLING + 1
     best_loss = math.inf
     start_t = time.time()
     for epoch in range(args.epochs):
@@ -138,6 +134,7 @@ def train(train_dataset, dev_dataset, args, device):
                                         batch=batch,
                                         candidates_pool=candidates_pool,
                                         response_criterion=response_criterion,
+                                        candidates_pool_size=candidates_pools_size,
                                         device=device)
             #backward
             optimizer.zero_grad()
@@ -156,6 +153,7 @@ def train(train_dataset, dev_dataset, args, device):
                                             batch=batch,
                                             candidates_pool=candidates_pool,
                                             response_criterion=response_criterion,
+                                            candidates_pool_size=candidates_pools_size,
                                             device=device)
                 curr_epoch_losses.append(response_loss.item())
 
@@ -163,8 +161,7 @@ def train(train_dataset, dev_dataset, args, device):
         # save checkpoint if best model
         if losses_trend['dev'][-1] < best_loss:
             best_loss = losses_trend['dev'][-1]
-            torch.save(model.cpu().state_dict(),\
-                       os.path.join(checkpoint_dir, 'state_dict.pt'))
+            torch.save(model.cpu().state_dict(), os.path.join(checkpoint_dir, 'state_dict.pt'))
             model.to(device)
         
         print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f} ; (lr={})'.format(epoch+1, 
@@ -239,8 +236,8 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    train_dataset = FastDataset(dat_path=args.data)
-    dev_dataset = FastDataset(dat_path=args.eval)
+    train_dataset = FastDataset(dat_path=args.data, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
+    dev_dataset = FastDataset(dat_path=args.eval, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
 
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 

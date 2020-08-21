@@ -2,13 +2,17 @@ import argparse
 import json
 import os
 import pdb
+import sys
 
 import torch
 from torch.utils.data import DataLoader
 
+sys.path.append('.')
+
 from config import TrainConfig
-from models import BlindStatefulLSTM, BlindStatelessLSTM
-from utilities import SIMMCDatasetForActionPrediction, plotting_loss
+from dataset import FastDataset
+from models import BlindStatefulLSTM, BlindStatelessLSTM, MMStatefulLSTM
+from tools.simmc_dataset import SIMMCDatasetForActionPrediction
 
 """expected form for model output
     [
@@ -72,9 +76,9 @@ def instantiate_model(args, num_actions, num_attrs, word2id):
 
 
 def create_eval_dict(dataset):
+    dataset.create_id2turns()
     eval_dict = {}
-    for dial_id in dataset.id2dialog:
-        num_turns = len(dataset.id2dialog[dial_id]['dialogue'])
+    for dial_id, num_turns in dataset.id2turns.items():
         eval_dict[dial_id] = {'dialog_id': dial_id, 'predictions': [None] * num_turns}
     return eval_dict
 
@@ -169,12 +173,6 @@ if __name__ == '__main__':
         required=True,
         help="Path to training dataset json file")
     parser.add_argument(
-        "--metadata",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to metadata json file")
-    parser.add_argument(
         "--embeddings",
         default=None,
         type=str,
@@ -186,12 +184,6 @@ if __name__ == '__main__':
         required=True,
         help="Path to metadata embeddings file")
     parser.add_argument(
-        "--actions",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to training action annotations file")
-    parser.add_argument(
         "--cuda",
         default=None,
         required=False,
@@ -199,22 +191,19 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    test_dataset = SIMMCDatasetForActionPrediction(data_path=args.data, metadata_path=args.metadata, actions_path=args.actions)
+    test_dataset = FastDataset(dat_path=args.data)
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 
     eval_dict = create_eval_dict(test_dataset)
     print('EVAL DATASET: {}'.format(test_dataset))
 
     # prepare model
-    vocabulary_test = test_dataset.get_vocabulary()
-    print('VOCABULARY SIZE: {}'.format(len(vocabulary_test)))
-
     word2id = torch.load(args.vocabulary)
 
     model = instantiate_model(args, 
-                                num_actions=len(SIMMCDatasetForActionPrediction._LABEL2ACT), 
-                                num_attrs=len(SIMMCDatasetForActionPrediction._ATTRS), 
-                                word2id=word2id)
+                            num_actions=len(SIMMCDatasetForActionPrediction._LABEL2ACT), 
+                            num_attrs=len(SIMMCDatasetForActionPrediction._ATTRS), 
+                            word2id=word2id)
     model.load_state_dict(torch.load(args.model_path))
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])

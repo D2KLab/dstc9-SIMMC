@@ -254,8 +254,10 @@ class MMStatefulLSTM(nn.Module):
 
         return weighted_sum
 
-    """
+    
+
     def collate_fn(self, batch):
+        """
         This method prepares the batch for the LSTM: padding + preparation for pack_padded_sequence
 
         Args:
@@ -268,107 +270,39 @@ class MMStatefulLSTM(nn.Module):
             seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence
             actions (torch.Longtensor): tensor with B shape containing target actions
             attributes (torch.Longtensor): tensor with Bx33 shape containing attributes one-hot vectors, one for each sample.
-        
+        """
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
+        transcripts = [torch.tensor(item[2]) for item in batch]
         history = [item[3] for item in batch]
-        visual_context = [item[4] for item in batch]
-        actions = [item[5] for item in batch]
-        attributes = [item[6] for item in batch]
+        actions = [item[4] for item in batch]
+        attributes = [item[5] for item in batch]
+        visual_context = [item[6] for item in batch]
+        visual_context = {'focus': [], 'history': []}
+        visual_context['focus'] = [item[6] for item in batch]
+        visual_context['history'] = [item[7] for item in batch]
         responses_pool = [item[7] for item in batch]
 
-        # words to ids for the current utterance
-        word2id = self.word_embeddings_layer.word2id
-        unk_token = self.word_embeddings_layer.unk_token
-        utterance_seq_ids = []
-        for item in batch:
-            curr_seq = []
-            for word in item[2].split():
-                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                curr_seq.append(word_id)
-            utterance_seq_ids.append(curr_seq)
-
-        # words to ids for the history
-        history_seq_ids = []
-        for turn, item in zip(turns, history):
-            assert len(item) == turn, 'Number of turns does not match history length'
-            curr_turn_ids = []
-            for t in range(turn):
-                concat_sentences = item[t][0] + ' ' + item[t][1] #? separator token
-                curr_seq = []
-                for word in concat_sentences.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                    curr_seq.append(word_id)
-                curr_turn_ids.append(torch.tensor(curr_seq))
-            history_seq_ids.append(curr_turn_ids)
-
-        # convert response candidates to word ids
-        resp_ids = []
-        for resps in responses_pool:
-            curr_candidate = []
-            for resp in resps:
-                curr_seq = []
-                for word in resp.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                    curr_seq.append(word2id[word])
-                curr_candidate.append(torch.tensor(curr_seq, dtype=torch.long))
-            resp_ids.append(curr_candidate)
-
-        #convert actions and attributes to word ids
-        act_ids = []
-        for act in actions:
-            curr_seq = []
-            for word in act.split():
-                word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                curr_seq.append(word_id)
-            act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
-
-        attr_ids = []
-        for attrs in attributes:
-            curr_attributes = []
-            for attr in attrs:
-                curr_seq = []
-                for word in attr.split():
-                    word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
-                    curr_seq.append(word_id)
-                curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
-            attr_ids.append(curr_attributes)
-
-        # item to id for the visual context
-        item2id = self.item_embeddings_layer.item2id
-        visual_ids = {'focus': [], 'history': []}
-        for v in visual_context:
-            curr_focus = self.item2id[v['focus']]
-            curr_history = []
-            for vv in v['history']:
-                v_id = self.item2id[vv]
-                curr_history.append(torch.tensor(v_id))
-            visual_ids['focus'].append(torch.tensor(curr_focus))
-            if len(curr_history):
-                curr_history = torch.stack(curr_history)
-            visual_ids['history'].append(curr_history)
-        visual_ids['focus'] = torch.stack(visual_ids['focus'])
-
-        assert len(utterance_seq_ids) == len(dial_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(turns), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(history_seq_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(resp_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(act_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(attr_ids), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(visual_ids['focus']), 'Batch sizes do not match'
-        assert len(utterance_seq_ids) == len(visual_ids['history']), 'Batch sizes do not match'
+        assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
+        assert len(transcripts) == len(turns), 'Batch sizes do not match'
+        assert len(transcripts) == len(history), 'Batch sizes do not match'
+        assert len(transcripts) == len(actions), 'Batch sizes do not match'
+        assert len(transcripts) == len(attributes), 'Batch sizes do not match'
+        assert len(transcripts) == len(visual_context['focus']), 'Batch sizes do not match'
+        assert len(transcripts) == len(visual_context['history']), 'Batch sizes do not match'
+        assert len(transcripts) == len(responses_pool), 'Batch sizes do not match'
 
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
-        seq_lengths = torch.tensor(list(map(len, utterance_seq_ids)), dtype=torch.long)
-        seq_tensor = torch.zeros((len(utterance_seq_ids), seq_lengths.max()), dtype=torch.long)
+        transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
+        transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
 
-        for idx, (seq, seqlen) in enumerate(zip(utterance_seq_ids, seq_lengths)):
-            seq_tensor[idx, :seqlen] = torch.tensor(seq, dtype=torch.long)
+        for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
+            transcripts_tensor[idx, :seqlen] = seq.clone().detach()
 
         # sort instances by sequence length in descending order
-        seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
-        seq_tensor = seq_tensor[perm_idx]
+        transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
+        transcripts_tensor = transcripts_tensor[perm_idx]
         sorted_dial_ids = []
         sorted_dial_turns = []
         sorted_dial_history = []
@@ -379,24 +313,23 @@ class MMStatefulLSTM(nn.Module):
         for idx in perm_idx:
             sorted_dial_ids.append(dial_ids[idx])
             sorted_dial_turns.append(turns[idx])
-            sorted_dial_history.append(history_seq_ids[idx])
-            sorted_responses.append(resp_ids[idx])
-            sorted_actions.append(act_ids[idx])
-            sorted_attributes.append(attr_ids[idx])
-            sorted_visual_context['focus'].append(visual_ids['focus'][idx])
-            sorted_visual_context['history'].append(visual_ids['history'][idx])
+            sorted_dial_history.append(history[idx])
+            sorted_actions.append(actions[idx])
+            sorted_attributes.append(attributes[idx])
+            sorted_visual_context['focus'].append(visual_context['focus'][idx])
+            sorted_visual_context['history'].append(visual_context['history'][idx])
+            sorted_responses.append(responses_pool[idx])
 
         batch_dict = {}
-        batch_dict['utterances'] = seq_tensor
+        batch_dict['utterances'] = transcripts_tensor
         batch_dict['history'] = sorted_dial_history
         batch_dict['actions'] = sorted_actions
         batch_dict['attributes'] = sorted_attributes
         batch_dict['visual_context'] = sorted_visual_context
-        batch_dict['seq_lengths'] = seq_lengths
+        batch_dict['seq_lengths'] = transcripts_lengths
 
         return sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses
 
 
     def __str__(self):
         return super().__str__()
-    """

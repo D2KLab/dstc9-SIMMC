@@ -206,47 +206,28 @@ class BlindStatefulLSTM(nn.Module):
         """
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
+        transcripts = [torch.tensor(item[2]) for item in batch]
         history = [item[3] for item in batch]
-        actions = torch.tensor([item[5] for item in batch])
-        attributes = torch.tensor([item[6] for item in batch])
-
-        # words to ids for the history
-        word2id = self.word_embeddings_layer.word2id
-        unk_token = self.word_embeddings_layer.unk_token
-        history_seq_ids = []
-        for turn, item in zip(turns, history):
-            assert len(item) == turn, 'Number of turns does not match history length'
-            curr_turn_ids = []
-            for t in range(turn):
-                concat_sentences = item[t][0] + ' ' + item[t][1] #? separator token
-                curr_seq = []
-                for word in concat_sentences.split():
-                    word_id = word2id[word] if word in word2id else word2id[unk_token]
-                    curr_seq.append(word_id)
-                curr_turn_ids.append(torch.tensor(curr_seq))
-            history_seq_ids.append(curr_turn_ids)
-
-        # words to ids for the current utterance
-        utterance_seq_ids = []
-        for item in batch:
-            curr_seq = []
-            for word in item[2].split():
-                word_id = word2id[word] if word in word2id else word2id[unk_token]
-                curr_seq.append(word_id)
-            utterance_seq_ids.append(curr_seq)
+        actions = torch.tensor([item[4] for item in batch])
+        attributes = torch.stack([item[5] for item in batch])
         
-        seq_lengths = torch.tensor(list(map(len, utterance_seq_ids)), dtype=torch.long)
-        seq_tensor = torch.zeros((len(utterance_seq_ids), seq_lengths.max()), dtype=torch.long)
-
-        for idx, (seq, seqlen) in enumerate(zip(utterance_seq_ids, seq_lengths)):
-            seq_tensor[idx, :seqlen] = torch.tensor(seq, dtype=torch.long)
-
-        # sort instances by sequence length in descending order
-        seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
+        assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
+        assert len(transcripts) == len(turns), 'Batch sizes do not match'
+        assert len(transcripts) == len(history), 'Batch sizes do not match'
+        assert len(transcripts) == actions.shape[0], 'Batch sizes do not match'
+        assert len(transcripts) == attributes.shape[0], 'Batch sizes do not match'
 
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
-        seq_tensor = seq_tensor[perm_idx]
+        transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
+        transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
+
+        for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
+            transcripts_tensor[idx, :seqlen] = seq.clone().detach()
+
+        # sort instances by sequence length in descending order
+        transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
+        transcripts_tensor = transcripts_tensor[perm_idx]
         actions = actions[perm_idx]
         attributes = attributes[perm_idx]
         sorted_dial_ids = []
@@ -255,12 +236,12 @@ class BlindStatefulLSTM(nn.Module):
         for idx in perm_idx:
             sorted_dial_ids.append(dial_ids[idx])
             sorted_dial_turns.append(turns[idx])
-            sorted_dial_history.append(history_seq_ids[idx])
+            sorted_dial_history.append(history[idx])
 
         batch_dict = {}
-        batch_dict['utterances'] = seq_tensor
+        batch_dict['utterances'] = transcripts_tensor
         batch_dict['history'] = sorted_dial_history
-        batch_dict['seq_lengths'] = seq_lengths
+        batch_dict['seq_lengths'] = transcripts_lengths
 
         return sorted_dial_ids, sorted_dial_turns, batch_dict, actions, attributes
 

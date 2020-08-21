@@ -283,6 +283,18 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         return '{}_subtask({})'.format(super().__str__(), self.task)
 
 
+    def get_vocabulary(self):
+        voc = super().get_vocabulary()
+        #add also the vocabulary for actions and attributes
+        for _, attr in self._ATTR2STR.items():
+            for word in attr.split():
+                voc.add(word)
+        for _, act in self._ACT2STR.items():
+            for word in act.split():
+                voc.add(word)
+        return voc
+
+
     def load_candidates(self, candidates_path):
         self.candidates = []
         self.id2candidates = {}
