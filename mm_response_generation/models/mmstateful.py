@@ -82,6 +82,8 @@ class MMStatefulLSTM(nn.Module):
 
     def forward(self, utterances, history, visual_context, seq_lengths=None, device='cpu'):
 
+        pdb.set_trace()
+
         # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
         u_t = self.encode_utterance(utterances, seq_lengths)
         focus, focus_history = self.encode_visual(visual_context, device)

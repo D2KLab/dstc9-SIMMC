@@ -4,7 +4,7 @@
 #export MODEL=blindstateful
 export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_action_prediction/checkpoints/2020-08-21T11:03:09
+export CHECKPOINT_FOLDER=mm_action_prediction/checkpoints/2020-08-23T17:33:26
 
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/vocabulary.pkl
@@ -17,7 +17,7 @@ python mm_action_prediction/eval.py \
         --model $MODEL\
         --model_path $MODEL_WEIGHTS_PATH\
         --vocabulary $VOCABULARY\
-        --data  $DATASET_PATH\
+        --data $DATASET_PATH\
         --embeddings $GLOVE_PATH\
         --metadata_embeddings $METADATA_EMBEDDINGS\
         --cuda 0

@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 
 from config import TrainConfig
 from dataset import FastDataset
-from models import BlindStatelessLSTM
+from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import Logger, plotting_loss
 
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -128,7 +128,8 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(devloader): #todo change to trainloader
+        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader): #todo change to trainloader
+            pdb.set_trace()
             #print(curr_step)
             response_loss = forward_step(model, 
                                         batch=batch,
@@ -237,7 +238,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     train_dataset = FastDataset(dat_path=args.data, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
-    dev_dataset = FastDataset(dat_path=args.eval, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
+    dev_dataset = FastDataset(dat_path=args.eval, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING) #? sampling on eval
 
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 

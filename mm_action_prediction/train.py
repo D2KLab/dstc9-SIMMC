@@ -158,7 +158,7 @@ def train(train_dataset, dev_dataset, args, device):
     attributes_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=bce_weights).to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
-    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
+    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.5, patience=4, threshold=1e-2, cooldown=4, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': {'global':[], 'actions': [], 'attributes': []}, 

@@ -1,8 +1,8 @@
 #/usr/bin/bash
 
-export MODEL=blindstateless
+#export MODEL=blindstateless
 #export MODEL=blindstateful
-#export MODEL=mmstateful
+export MODEL=mmstateful
 
 export DATASET_PATH=data/simmc_fashion/train/response_retrieval_data.dat
 export EVAL_PATH=data/simmc_fashion/dev/response_retrieval_data.dat
@@ -20,4 +20,4 @@ python mm_response_generation/train.py \
         --metadata_embeddings $METADATA_EMBEDDINGS\
         --batch_size 128\
         --epochs 50\
-        --cuda 0
+        --cuda 1

@@ -1,8 +1,8 @@
 #/usr/bin/bash
 
-export MODEL=blindstateless
+#export MODEL=blindstateless
 #export MODEL=blindstateful
-#export MODEL=mmstateful
+export MODEL=mmstateful
 
 export DATASET_PATH=data/simmc_fashion/train/action_prediction_data.dat
 export EVAL_PATH=data/simmc_fashion/dev/action_prediction_data.dat
@@ -19,5 +19,5 @@ python mm_action_prediction/train.py \
         --embeddings $GLOVE_PATH\
         --metadata_embeddings $METADATA_EMBEDDINGS\
         --batch_size 128\
-        --epochs 20\
+        --epochs 60\
         --cuda 0
