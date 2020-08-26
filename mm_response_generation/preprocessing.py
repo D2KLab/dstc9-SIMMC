@@ -22,9 +22,8 @@ class Collate():
 
     ACT2STR = SIMMCDatasetForResponseGeneration._ACT2STR
 
-    def __init__(self, word2id, item2id, unk_token):
+    def __init__(self, word2id, unk_token):
         self.word2id = word2id
-        self.item2id = item2id
         self.unk_token = unk_token
 
     def collate_fn(self, batch):
@@ -99,27 +98,13 @@ class Collate():
         visual_ids = []
         if actions[0] == self.ACT2STR['searchmemory']:
             assert len(visual_context[0]['memory']) != 0, 'SearchMemory action and empty memory list'
-            visual_ids = [torch.tensor(self.item2id[str(mem_id)]) for mem_id in visual_context[0]['memory']]
+            visual_ids = [torch.tensor(mem_id) for mem_id in visual_context[0]['memory']]
             visual_ids = torch.stack(visual_ids)
         elif actions[0] == self.ACT2STR['searchdatabase']:
-            visual_ids = [torch.tensor(self.item2id[str(mem_id)]) for mem_id in visual_context[0]['db']]
+            visual_ids = [torch.tensor(mem_id) for mem_id in visual_context[0]['db']]
             visual_ids = torch.stack(visual_ids)
         else:
-            visual_ids = torch.tensor(self.item2id[str(visual_context[0]['focus'])])
-        """
-        visual_ids = {'focus': [], 'memory': [], 'db': []}
-        visual_ids['focus'] = [torch.tensor(self.item2id[str(v['focus'])]) for v in visual_context]
-        #memory and db are always the same for the entire conversation, so just take the first one
-        if not len(visual_context[0]['memory']):
-            assert actions[0] != 'searchmemory', 'SearchMemory action with empty memory list!'
-        else:
-            visual_ids['memory'] = [torch.tensor(self.item2id[str(mem_id)]) for mem_id in visual_context[0]['memory']]
-        visual_ids['db'] = [torch.tensor(self.item2id[str(mem_id)]) for mem_id in visual_context[0]['db']]
-        visual_ids['focus'] = torch.stack(visual_ids['focus'])
-        if len(visual_ids['memory']):
-            visual_ids['memory'] = torch.stack(visual_ids['memory'])
-        visual_ids['db'] = torch.stack(visual_ids['db'])
-        """
+            visual_ids = torch.tensor(visual_context[0]['focus'])
 
         assert len(utterance_seq_ids) == 1, 'Only unitary batch sizes allowed'
         assert len(utterance_seq_ids) == len(dial_ids), 'Batch sizes do not match'
@@ -139,6 +124,10 @@ class Collate():
 
 
 def save_data_on_file(iterator, save_path):
+
+    metadata_ids = {}
+    #here save metadata
+
     dial_id_list = []
     turn_list = []
     utterance_list = []
@@ -173,6 +162,36 @@ def save_data_on_file(iterator, save_path):
     )
 
 
+def metadata2ids(processed_metadata, word2id, unk_token):
+    unknown_words = set()
+    metadata_ids = {}
+
+    for item_id, item in processed_metadata.items():
+        metadata_ids[int(item_id)] = []
+        for field, values in item.items():
+            curr_field = []
+            for word in field.split():
+                if word not in word2id:
+                    unknown_words.add(word)
+                curr_field.append(word2id[word] if word in word2id else unk_token)
+            curr_values = []
+            for value in values:
+                curr_value = []
+                for word in value.split():
+                    if word not in word2id:
+                        unknown_words.add(word)
+                    curr_value.append(word2id[word] if word in word2id else unk_token)
+                curr_values.append(torch.tensor(curr_value))
+            if not len(curr_values):
+                curr_values.append(torch.tensor(word2id['none'], dtype=torch.long)) #insert none for field for which we do not have values
+        
+            metadata_ids[int(item_id)].append((torch.tensor(curr_field, dtype=torch.long), curr_values))
+
+    print('UNKNOWN METADATA WORDS: {}'.format(len(unknown_words)))
+    return metadata_ids
+
+
+
 def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
     # prepare model's vocabulary
@@ -191,12 +210,15 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
+    metadata_ids = metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=TrainConfig._UNK_TOKEN)
+    torch.save(metadata_ids, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'metadata_ids.dat'))
+
     raw_data = np.load(args.metadata_embeddings, allow_pickle=True)
     raw_data = dict(raw_data.item())
     item2id = {}
     for idx, item in enumerate(raw_data['item_ids']):
         item2id[item] = idx
-    collate = Collate(word2id=word2id, item2id=item2id, unk_token=TrainConfig._UNK_TOKEN)
+    collate = Collate(word2id=word2id, unk_token=TrainConfig._UNK_TOKEN)
     # prepare DataLoader
     params = {'batch_size': 1,
             'shuffle': False,

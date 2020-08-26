@@ -86,7 +86,7 @@ class SIMMCDataset(Dataset):
         # inverted coref map: placeholder -> item_id
         inverted_coref_map = {}
         for key, item in coref_map.items():
-            inverted_coref_map[item] = key
+            inverted_coref_map[item] = int(key)
         focus_id, memory_ids, db_ids = self.extract_visual_context(dial_id, turn, inverted_coref_map)
         visual_context_dict = {'focus': focus_id, 'memory': memory_ids, 'db': db_ids}
 
@@ -346,10 +346,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         Args:
             str_val ([type]): [description]
         """
-        repaired_list = []
-        for word in str_val[2:-2].split('\', \''):
-            repaired_list.append(word)
-        return repaired_list
+        return [word for word in str_val[2:-2].split('\', \'')]
 
 
     def __getitem__(self, index):
