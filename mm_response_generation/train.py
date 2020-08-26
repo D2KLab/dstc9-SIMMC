@@ -79,9 +79,9 @@ def train(train_dataset, dev_dataset, args, device):
     # prepare checkpoint folder
     curr_date = datetime.datetime.now().isoformat().split('.')[0]
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
-    os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
+    #os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
     # prepare logger to redirect both on file and stdout
-    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -95,7 +95,7 @@ def train(train_dataset, dev_dataset, args, device):
         vocabulary = np.load(fp, allow_pickle=True)
         vocabulary = dict(vocabulary.item())
 
-    torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
+    #torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
@@ -106,7 +106,7 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True, #todo set to True
+            'shuffle': False, #todo set to True
             'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)

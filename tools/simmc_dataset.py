@@ -24,24 +24,25 @@ ACTIVITY = {'ADD_TO_CART', 'CHECK', 'COMPARE', 'COUNT', 'DISPREFER', 'GET', 'PRE
 
 class SIMMCDataset(Dataset):
     """Dataset wrapper for SIMMC Fashion
+
+    (list) self.ids[idx] = <dialogue_id>
+
+    (dict) self.id2dialog[<dialogue_id>].keys() = ['dialogue', 'dialogue_coref_map', 'dialogue_idx', 'domains', 'dialogue_task_id']
+
+    (dict) self.id2dialog[<dialogue_id>]['dialogue'][<dialogue_turn>].keys() = ['belief_state', 'domain', 'state_graph_0', 'state_graph_1', 'state_graph_2', 
+                                                            'system_transcript', 'system_transcript_annotated', 'system_turn_label', 
+                                                            'transcript', 'transcript_annotated', 'turn_idx', 'turn_label', 
+                                                            'visual_objects', 'raw_assistant_keystrokes']
+
+    (list) self.transcripts[idx] = 'dialogueid_turn' (e.g., '3094_3', '3094_0')
+
+    (dict) self.task_mapping[<task_id>].keys() = ['task_id', 'image_ids', 'focus_image', 'memory_images', 'database_images']
+
+    (dict) self.processed_turns[<dialogue_id>][turn] = {'transcript': <tokenized_transcript>, 'system_transcript': <tokenized_system_transcript>}
     """
 
     def __init__(self, data_path, metadata_path, verbose=True):
-        """Dataset constructor. The dataset has the following shape
-
-            (list) self.ids[idx] = <dialogue_id>
-
-            (dict) self.id2dialog[<dialogue_id>].keys() = ['dialogue', 'dialogue_coref_map', 'dialogue_idx', 'domains', 'dialogue_task_id']
-
-            (dict) self.id2dialog[<dialogue_id>]['dialogue'][<dialogue_turn>].keys() = ['belief_state', 'domain', 'state_graph_0', 'state_graph_1', 'state_graph_2', 
-                                                                    'system_transcript', 'system_transcript_annotated', 'system_turn_label', 
-                                                                    'transcript', 'transcript_annotated', 'turn_idx', 'turn_label', 
-                                                                    'visual_objects', 'raw_assistant_keystrokes']
-
-            (list) self.transcripts[idx] = 'dialogueid_turn' (e.g., '3094_3', '3094_0')
-
-            (dict) self.processed_turns[<dialogue_id>][turn] = {'transcript': <tokenized_transcript>, 'system_transcript': <tokenized_system_transcript>}
-
+        """Dataset constructor.
         Args:
             path (str): path to dataset json file
             metadata_path (str): path to metadata json file
@@ -60,32 +61,11 @@ class SIMMCDataset(Dataset):
         if self.verbose:
             print('Creating dataset index ...')
 
-        raw_data = raw_data['dialogue_data']
         self.create_index(raw_data)
         if self.verbose:
             print('Skipped dialogs: {}'.format(self.skipped_dialogs))
             print(' ... index created')
         self.create_vocabulary()
-
-
-    def extract_visual_object(self, dial_id, turn, placeh2id):
-        """Returns the visual object id and placeholder for a given turn and dialogue
-
-        Args:
-            dial_id (int): dialogue id
-            turn (int): turn's number
-            placeh2id (dict): dictionary from placeholder to object id
-
-        Returns:
-            tuple: (object_id, placeholder)
-        """
-        visual_object = self.id2dialog[dial_id]['dialogue'][turn]['visual_objects']
-        if not len(visual_object):
-            return None, None
-        assert len(visual_object) <= 1, 'More than one visual object in turn {} of dialogue {}'.format(turn, dial_id)
-        for obj in visual_object:
-            visual_obj_placeholder = int(obj.split('_')[-1])
-        return placeh2id[visual_obj_placeholder], visual_obj_placeholder
 
 
     def __len__(self):
@@ -107,25 +87,16 @@ class SIMMCDataset(Dataset):
         inverted_coref_map = {}
         for key, item in coref_map.items():
             inverted_coref_map[item] = key
-        focus_obj, _ = self.extract_visual_object(dial_id, turn, inverted_coref_map)
-        visual_context_dict = {'focus': focus_obj, 'history': []}
+        focus_id, memory_ids, db_ids = self.extract_visual_context(dial_id, turn, inverted_coref_map)
+        visual_context_dict = {'focus': focus_id, 'memory': memory_ids, 'db': db_ids}
 
         # extract dialogue history
         history = []
         for t in range(turn):
-            # extract visual history
-            visual_object, _ = self.extract_visual_object(dial_id, t, inverted_coref_map)
-            #? actually we have one object per turn, allowing object repetitions (think about inserting only unique elements)
-            # forcing object permanence (if a turn has no focus object, then the context is the object in previous turn)
-            curr_obj = visual_object if visual_object is not None else visual_context_dict['history'][-1]
-            visual_context_dict['history'].append(curr_obj)
             # extract textual history
             qa = [self.processed_turns[dial_id][t]['transcript'], 
                             self.processed_turns[dial_id][t]['system_transcript']]
             history.append(qa)
-        # forcing object permanence
-        if visual_context_dict['focus'] is None:
-            visual_context_dict['focus'] = visual_context_dict['history'][-1]
 
         # dispatch data across different dataset instantiation
         if isinstance(self, SIMMCDatasetForActionPrediction,) or isinstance(self, SIMMCDatasetForResponseGeneration,):
@@ -134,9 +105,49 @@ class SIMMCDataset(Dataset):
                 attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
             return_tuple = (dial_id, turn, current_transcript, history, visual_context_dict, self.id2act[dial_id][turn]['action'], attributes)
             if isinstance(self, SIMMCDatasetForResponseGeneration,):
-                return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],) #todo fetch from processed list
+                return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],)
             return return_tuple
 
+
+    def extract_visual_context(self, dial_id, turn, placeh2id):
+        """Returns the visual object id and placeholder for a given turn and dialogue
+
+        Args:
+            dial_id (int): dialogue id
+            turn (int): turn's number
+            placeh2id (dict): dictionary from placeholder to object id
+
+        Returns:
+            tuple: (focus_id, memory_ids, db_ids)
+        """
+        task_id = self.id2dialog[dial_id]['dialogue_task_id']
+        task = self.task_mapping[task_id]
+        # extract focus
+        if turn == 0:
+            focus_id = task['focus_image']
+        else:
+            #forcing object permanence. If not present in this turn, take the focus from previous
+            for t in reversed(range(turn+1)):
+                if t == 0:
+                    focus_id = task['focus_image']
+                    break
+                focus = self.id2dialog[dial_id]['dialogue'][t]['visual_objects']
+                assert len(focus.keys()) <= 1, 'More than one visual object'
+                if not len(focus.keys()):
+                    continue
+                focus = [foc for foc in focus.keys()][0]
+                focus_id = placeh2id[int(focus.split('_')[-1])]
+                break
+
+        # extract memory and database ids
+        memory_ids = []
+        db_ids = []
+        for img_id in task['memory_images']:
+            memory_ids.append(img_id)
+        for img_id in task['database_images']:
+            db_ids.append(img_id)
+
+        return focus_id, memory_ids, db_ids
 
 
     def create_index(self, raw_data):
@@ -144,7 +155,7 @@ class SIMMCDataset(Dataset):
         self.id2dialog = {}
         self.transcripts = []
         self.skipped_dialogs = set()
-        for dialog in raw_data:
+        for dialog in raw_data['dialogue_data']:
 
             if 'dialogue_task_id' in dialog:
                 self.ids.append(dialog['dialogue_idx'])
@@ -161,6 +172,10 @@ class SIMMCDataset(Dataset):
                 if self.verbose:
                     #print('id: {} ; is dialogue_task_id missing: {}'.format(dialog['dialogue_idx'], not 'dialogue_task_id' in dialog))
                     self.skipped_dialogs.add(dialog['dialogue_idx'])
+
+        self.task_mapping = {}
+        for task in raw_data['task_mapping']:
+            self.task_mapping[task['task_id']] = task
 
 
     def create_vocabulary(self):
@@ -232,16 +247,17 @@ class SIMMCDataset(Dataset):
         return '{}_{}_{}_v{}'.format(self.domain, self.split, self.year, self.version)
 
 
+
 class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
     # conversion from attribute and action annotations format to english string
-    _ATTR2STR = {'skirtStyle': 'skirt style', 'availableSizes': 'available sizes', 'dressStyle': 'dress style', 'clothingStyle': 'clothing style', 
-                'jacketStyle': 'jacket style', 'sleeveLength': 'sleeve length', 'soldBy': 'sold by', 'ageRange': 'age range', 'hemLength': 'hem length', 
-                'warmthRating': 'warmth rating', 'sweaterStyle': 'sweater style', 'forGender': 'for gender', 'madeIn': 'made in', 'customerRating': 'customer rating',
-                'hemStyle': 'hem style', 'hasPart': 'has part', 'clothingCategory': 'clothing category', 'forOccasion': 'for occasion', 'waistStyle': 'waist style', 
-                'sleeveStyle': 'sleeve style', 'amountInStock': 'amount in stock', 'waterResistance': 'water resistance', 'necklineStyle': 'neckline style', 
-                'skirtLength': 'skirt length'}
-    _ACT2STR = {'None': 'none', 'SearchDatabase': 'search database', 'SearchMemory': 'search memory', 'SpecifyInfo': 'specify info', 'AddToCart': 'add to cart'}
+    _ATTR2STR = {'skirtstyle': 'skirt style', 'availablesizes': 'available sizes', 'dressstyle': 'dress style', 'clothingstyle': 'clothing style', 
+                'jacketstyle': 'jacket style', 'sleevelength': 'sleeve length', 'soldby': 'sold by', 'agerange': 'age range', 'hemlength': 'hem length', 
+                'warmthrating': 'warmth rating', 'sweaterstyle': 'sweater style', 'forgender': 'for gender', 'madein': 'made in', 'customerrating': 'customer rating',
+                'hemstyle': 'hem style', 'haspart': 'has part', 'clothingcategory': 'clothing category', 'foroccasion': 'for occasion', 'waiststyle': 'waist style', 
+                'sleevestyle': 'sleeve style', 'amountinstock': 'amount in stock', 'waterresistance': 'water resistance', 'necklinestyle': 'neckline style', 
+                'skirtlength': 'skirt length'}
+    _ACT2STR = {'none': 'none', 'searchdatabase': 'search database', 'searchmemory': 'search memory', 'specifyinfo': 'specify info', 'addtocart': 'add to cart'}
 
     def __init__(self, data_path, metadata_path, actions_path, candidates_path, verbose=True):
         super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
@@ -266,10 +282,9 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
     def __getitem__(self, index):
         dial_id, turn, transcript, history, visual_context, action, attributes, candidates_ids = super().__getitem__(index)
-        #convert action and attributes to english string
-        action = action.lower() if action not in self._ACT2STR else self._ACT2STR[action]
-        attributes = [attr.lower() if attr not in self._ATTR2STR else self._ATTR2STR[attr] for attr in attributes]
-
+        #convert actions and attributes to english strings
+        action = action.lower() if action.lower() not in self._ACT2STR else self._ACT2STR[action.lower()]
+        attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
         candidate_responses = [self.processed_candidates[candidate_id] for candidate_id in candidates_ids]
 
         return dial_id, turn, transcript, history, visual_context, action, attributes, candidate_responses
@@ -289,9 +304,11 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         for _, attr in self._ATTR2STR.items():
             for word in attr.split():
                 voc.add(word)
+
         for _, act in self._ACT2STR.items():
             for word in act.split():
                 voc.add(word)
+
         return voc
 
 
@@ -326,6 +343,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         for dial_id in self.ids:
             assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
                 'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
+
 
 
 class SIMMCDatasetForActionPrediction(SIMMCDataset):

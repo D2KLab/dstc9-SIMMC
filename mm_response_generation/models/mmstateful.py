@@ -1,14 +1,13 @@
+import math
 import pdb
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .embednets import WordEmbeddingNetwork, ItemEmbeddingNetwork
-
-import numpy as np
-
+from .embednets import ItemEmbeddingNetwork, WordEmbeddingNetwork
 
 
 def get_positional_embeddings(n_position, emb_dim):
@@ -46,17 +45,26 @@ class MMStatefulLSTM(nn.Module):
 
         self.memory_hidden_size = self._HIDDEN_SIZE
 
+        # MAE
+        # MN
+        # ATTRIBUTES-ITEM attention
+        # Candidate ENCODER
+        # Matching network
+
         # NETWORK
+        
         self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
                                                             word2id=word2id, 
                                                             pad_token=pad_token, 
                                                             unk_token=unk_token)
+        """
         self.utterance_encoder = nn.LSTM(self.word_embeddings_layer.embedding_dim, 
                                         self.memory_hidden_size, 
                                         batch_first=True, 
                                         bidirectional=True)
         self.utterance_dropout = nn.Dropout(p=.5)
+        
 
         self.item_dim_reduction = nn.Linear(in_features=self.item_embeddings_layer.embedding_dim,
                                             out_features=2*self.memory_hidden_size)
@@ -78,6 +86,7 @@ class MMStatefulLSTM(nn.Module):
         
         #self.singleturn_actions_outlayer = nn.Linear(in_features=4*self.memory_hidden_size, out_features=self.num_actions)
         #self.singleturn_args_outlayer = nn.Linear(in_features=4*self.memory_hidden_size, out_features=self.num_attrs)
+        """
 
 
     def forward(self, utterances, history, visual_context, seq_lengths=None, device='cpu'):
@@ -256,7 +265,6 @@ class MMStatefulLSTM(nn.Module):
 
         return weighted_sum
 
-    
 
     def collate_fn(self, batch):
         """
@@ -335,3 +343,64 @@ class MMStatefulLSTM(nn.Module):
 
     def __str__(self):
         return super().__str__()
+
+
+# Triton, trident? Not self attention! Triplet as input q, k, v belonging to different conceptual sets
+class MMAE(nn.Module):
+
+    def __init__(self, input_size, hidden_size):
+
+        self.utterance_encoder = nn.LSTM(input_size, 
+                                        hidden_size, 
+                                        batch_first=True, 
+                                        bidirectional=True)
+        self.utterance_dropout = nn.Dropout(p=.5)
+        # here attention between utterance and attributes to enforce important words inside the user request?
+
+        """
+        self.mm_attention = nn.Sequential(nn.Linear(),
+                                        nn.Tanh(),
+                                        nn.Linear(),
+                                        nn.Softmax())
+        self.normlayer = nn.LayerNorm([2*self.memory_hidden_size])
+        """
+
+
+        # utterance encoder
+        # attention layer
+        pass
+
+    
+    def forward(self, ut, vt):
+
+        ot, (ht, ct) = self.utterance_encoder(ut)
+
+        #torch.matmul()
+        
+        pass
+
+
+class Triton(nn.Module):
+    
+    def __init__(self):
+
+        self.Q = nn.Linear()
+        self.K = nn.Linear()
+        self.V = nn.Linear()
+        self.layerNorm = nn.LayerNorm()
+        self.dropout = nn.Dropout()
+        self.feedforward = nn.Linear()
+
+    def forward(self, ut, kt, vt):
+
+        q = self.Q(ut)
+        k = self.K(kt)
+        v = self.V(vt)
+
+        torch.matmul(q, k)/ math.sqrt()
+
+        #add and normalize + feedforward
+        out1 = self.layerNorm(ut + q)
+        out2 = self.feedforward(out1)
+        out2 = self.layerNorm(out1 + out2)
+        return out2

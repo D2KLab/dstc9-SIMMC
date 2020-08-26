@@ -1,0 +1,172 @@
++U: Can you compare the details of this skirt and the black skirt I saw before?
++W: This Gap striped skirt is a mini A-line style skirt that 212 Localts $58. The black skirt is from Bloomingdales, is a pencil mini style, and 212 Localts $225
+-V: {'OBJECT_1': {'embellishments': ['pleated'], 'hemLength': ['mini'], 'pattern': ['striped'], 'pos': 'focus', 'skirtStyle': ['a_line', 'loose'], 'type': 'skirt'}}
+@Coref: {'1931': 1, '1932': 3, '1934': 0, '1936': 2}
+*FOC: 1931
+*MEM: [1932, 1933, 1934]
+*DB: [1935, 1936, 1937, 1938, 1939, 1940]
+-----------
+-----------
++U: Anything that looks like the Bloomingdales skirt but has the price range of the Gap skirt?
++W: This black print skirt is $39, would this work?
+-V: {'OBJECT_1': {'embellishments': ['pleated'], 'hemLength': ['mini'], 'pattern': ['striped'], 'pos': 'focus', 'skirtStyle': ['a_line', 'loose'], 'type': 'skirt'}}
+@Coref: {'1931': 1, '1932': 3, '1934': 0, '1936': 2}
+*FOC: 1931
+*MEM: [1932, 1933, 1934]
+*DB: [1935, 1936, 1937, 1938, 1939, 1940]
+-----------
+-----------
++U: That is stunning! Yes it would.
++W: Great! It is available in XS, S, M, L, XL, and XXL.
+-V: {'OBJECT_2': {'color': ['black'], 'embellishments': ['pleated'], 'hemLength': ['midi', 'maxi'], 'pos': 'focus', 'skirtStyle': ['fit_and_flare', 'loose', 'asymmetrical', 'a_line'], 'type': 'skirt'}}
+@Coref: {'1931': 1, '1932': 3, '1934': 0, '1936': 2}
+*FOC: 1931
+*MEM: [1932, 1933, 1934]
+*DB: [1935, 1936, 1937, 1938, 1939, 1940]
+-----------
+-----------
++U: I'll take it in small, medium, and large.
++W: I have added a S, M, and L to your cart. Is there anything else I can help you with?
+-V: {}
+@Coref: {'1931': 1, '1932': 3, '1934': 0, '1936': 2}
+*FOC: 1931
+*MEM: [1932, 1933, 1934]
+*DB: [1935, 1936, 1937, 1938, 1939, 1940]
+-----------
+-----------
++U: Nope
++W: Thanks for shopping with us!
+-V: {}
+@Coref: {'1931': 1, '1932': 3, '1934': 0, '1936': 2}
+*FOC: 1931
+*MEM: [1932, 1933, 1934]
+*DB: [1935, 1936, 1937, 1938, 1939, 1940]
+-----------
+
+
+
+**********************************
+
+
+-----------
++U: This is such a wonderful suggestion. What is the price of this mini skirt?
++W: This The Vegan Baker skirt 212 Localts $244.
+-V: {'OBJECT_2': {'color': ['red'], 'embellishments': ['slit'], 'hemLength': ['mini'], 'pos': 'focus', 'skirtStyle': ['a_line'], 'type': 'skirt'}}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: I love The Vegan Baker! Do people like this skirt?
++W: It has an average rating of 2.68.
+-V: {'OBJECT_2': {'color': ['red'], 'embellishments': ['slit'], 'hemLength': ['mini'], 'pos': 'focus', 'skirtStyle': ['a_line'], 'type': 'skirt'}}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: OK, does this come in XXL?
++W: No, it only comes in L and XL.
+-V: {}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: That's unfortunate. Can you show me a mini with a slit in my size?
++W: Sorry, I couldn't find anything with that feature, but here's a $63 Glam Nails skirt that comes in your size.
+-V: {}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: What else can you tell me about this Glam Nails skirt?
++W: It has a rating of 4.2 and it is a cable-knit.
+-V: {'OBJECT_0': {'color': ['black'], 'embellishments': ['cable_knit'], 'hemLength': ['mini'], 'pattern': ['marled', 'plaid'], 'pos': 'focus', 'skirtStyle': ['a_line', 'loose'], 'type': 'skirt'}}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: OK, I'll take it!
++W: I've added it to your cart. Is there anything else I can help you with?
+-V: {}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: I want to see the highest rated skirt in my size.
++W: This skirt you saw earlier has the highest rating in your size, at 4.24.
+-V: {}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: I'm not a fan of that, but that you for finding it.
++W: No problem, will that be all then?
+-V: {'OBJECT_1': {'color': ['gray'], 'embellishments': ['ruched'], 'hemLength': ['knee_length'], 'pos': 'focus', 'skirtStyle': ['wiggle', 'pencil'], 'type': 'skirt'}}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+-----------
++U: That's all for me. Thank you!
++W: You're welcome, enjoy your afternoon!
+-V: {}
+@Coref: {'2411': 2, '2412': 1, '2416': 0}
+*FOC: 2411
+*MEM: [2412, 2413, 2414]
+*DB: [2415, 2416, 2417, 2418, 2419, 2420]
+-----------
+
+
+
+**********************************
+
+
+-----------
++U: This is pretty cool, I like it a lot better than the other two I was looking at. Can you tell me a bit about the embellishments on it, and the brand?
++W: Sorry, I don't have any information on the embellishments for this Art News Today skirt.
+-V: {'OBJECT_0': {'color': ['black'], 'hemLength': ['mini'], 'pattern': ['herringbone'], 'pos': 'focus', 'skirtStyle': ['a_line', 'loose'], 'type': 'skirt'}}
+@Coref: {'2231': 0}
+*FOC: 2231
+*MEM: [2232, 2233, 2234]
+*DB: [2235, 2236, 2237, 2238, 2239, 2240]
+-----------
+-----------
++U: How much is it?
++W: The price is $151.
+-V: {'OBJECT_0': {'color': ['black'], 'hemLength': ['mini'], 'pattern': ['herringbone'], 'pos': 'focus', 'skirtStyle': ['a_line', 'loose'], 'type': 'skirt'}}
+@Coref: {'2231': 0}
+*FOC: 2231
+*MEM: [2232, 2233, 2234]
+*DB: [2235, 2236, 2237, 2238, 2239, 2240]
+-----------
+-----------
++U: Does it come in small?
++W: No, the only size we do not have is small.
+-V: {}
+@Coref: {'2231': 0}
+*FOC: 2231
+*MEM: [2232, 2233, 2234]
+*DB: [2235, 2236, 2237, 2238, 2239, 2240]
+-----------
+-----------
++U: Bummer! What about XS, I can usually fit into that
++W: Sure, I've added one size XS to your cart.
+-V: {}
+@Coref: {'2231': 0}
+*FOC: 2231
+*MEM: [2232, 2233, 2234]
+*DB: [2235, 2236, 2237, 2238, 2239, 2240]

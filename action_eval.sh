@@ -1,8 +1,8 @@
 #/usr/bin/bash
 
-#export MODEL=blindstateless
+export MODEL=blindstateless
 #export MODEL=blindstateful
-export MODEL=mmstateful
+#export MODEL=mmstateful
 
 export CHECKPOINT_FOLDER=mm_action_prediction/checkpoints/2020-08-23T17:33:26
 

@@ -24,20 +24,29 @@ class ItemEmbeddingNetwork(nn.Module):
             self.item2id[item] = idx
 
         self.embedding_dim = raw_data['embedding_size']
-        embeddings = np.stack(raw_data['embeddings'])
-        embedding_weights = torch.tensor(embeddings)
-        num_embeddings = embedding_weights.shape[0]
-        assert embedding_weights.shape[-1] == self.embedding_dim, 'Real embedding dimension does not match the declared one'
-        self.embedding_layer = nn.Embedding(num_embeddings, self.embedding_dim)
-        self.embedding_layer.load_state_dict({'weight': embedding_weights})
+        fields_embeddings = np.stack([item_embs[0] for item_embs in raw_data['embeddings']])
+        values_embeddings = np.stack([item_embs[1] for item_embs in raw_data['embeddings']])
+        fields_embedding_weights = torch.tensor(fields_embeddings)
+        values_embedding_weights = torch.tensor(values_embeddings)
+
+        assert fields_embedding_weights.shape[0] == values_embedding_weights.shape[0], 'Number of fields and values embedding does not match'
+        assert fields_embedding_weights.shape[-1] == values_embedding_weights.shape[-1] and fields_embedding_weights.shape[-1] == self.embedding_dim,\
+                                                                                    'Real embedding dimension does not match the declared one'
+        num_embeddings = fields_embedding_weights.shape[0]
+        self.fields_embedding_layer = nn.Embedding(num_embeddings, self.embedding_dim)
+        self.fields_embedding_layer.load_state_dict({'weight': fields_embedding_weights})
+        self.values_embedding_layer = nn.Embedding(num_embeddings, self.embedding_dim)
+        self.values_embedding_layer.load_state_dict({'weight': values_embedding_weights})
 
         if freeze:
-            for p in self.embedding_layer.parameters():
-                    p.requires_grad = False
+            for p in self.fields_embedding_layer.parameters():
+                p.requires_grad = False
+            for p in self.values_embedding_layer.parameters():
+                p.requires_grad = False        
 
 
-    def forward(self, input):
-        return self.embedding_layer(input)
+    def forward(self, fields_ids, values_ids):
+        return self.fields_embedding_layer(fields_ids), self.values_embedding_layer(values_ids)
 
 
 
