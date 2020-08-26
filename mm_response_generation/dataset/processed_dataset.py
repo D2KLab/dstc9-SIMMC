@@ -34,6 +34,8 @@ class FastDataset(Dataset):
         else:
             candidates = self.data['candidates'][index]
 
+        pdb.set_trace()
+
         return self.data['dial_ids'][index], self.data['turns'][index], self.data['utterances'][index],\
                 self.data['histories'][index], self.data['actions'][index], self.data['attributes'][index],\
                 self.data['visual_contexts']['focus'][index], self.data['visual_contexts']['history'][index],\

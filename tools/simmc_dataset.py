@@ -266,18 +266,90 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         self.load_actions(actions_path)
         self.load_candidates(candidates_path)
 
-        self.processed_candidates = []
         tokenizer = WordPunctTokenizer()
 
+        self.processed_candidates = []
         for candidate in self.candidates:
             curr_candidate = ''
             tokens = tokenizer.tokenize(candidate)
             for tok in tokens:
                 cleaned_tok = self.token_clean(tok)
-                if cleaned_tok not in self.vocabulary:
-                    self.vocabulary.add(cleaned_tok)
+                self.vocabulary.add(cleaned_tok)
                 curr_candidate += cleaned_tok + ' '
             self.processed_candidates.append(curr_candidate[:-1]) #avoid last space
+
+        self.processed_metadata = {}
+        self.process_metadata_items()
+
+
+    def process_metadata_items(self):
+        """This method process the data inside metadata fields and make each field values a list 
+            (avoiding mixing up single values and lists)
+
+        Args:
+            tokenizer ([type]): [description]
+        """
+        for item_id, item in self.metadata.items():
+            assert item_id not in self.processed_metadata, 'Item {} presents twice'.format(item_id)
+            self.processed_metadata[item_id] = {}
+            for field, field_vals in item['metadata'].items():
+                curr_field = ''
+                # availability field is always empty
+                if field == 'availability' or field == 'url':
+                    continue
+                values = field_vals
+                if field == 'availableSizes' and not isinstance(values, list,):
+                    values = self.repair_size_list(values)
+
+                #field_tokens = tokenizer.tokenize(field)
+                field_tokens = re.split('_|\s', field)
+                for tok in field_tokens:
+                    cleaned_tok = self.token_clean(tok)
+                    cleaned_tok = self._ATTR2STR[cleaned_tok] if cleaned_tok in self._ATTR2STR else cleaned_tok
+                    self.vocabulary.add(cleaned_tok)
+                    curr_field += cleaned_tok + ' '
+                curr_field = curr_field[:-1]
+                
+                curr_val = ''
+                proc_values = []
+                if isinstance(values, list,):
+                    for val in values:
+                        curr_val = ''
+                        #value_tokens = tokenizer.tokenize(val)
+                        value_tokens = re.split('_|\s', val)
+                        for tok in value_tokens:
+                            cleaned_tok = self.token_clean(tok)
+                            self.vocabulary.add(cleaned_tok)
+                            curr_val += cleaned_tok + ' '
+                        proc_values.append(curr_val[:-1])
+                else:
+                    value_tokens = re.split('_|\s', val)
+                    for tok in value_tokens:
+                        cleaned_tok = self.token_clean(tok)
+                        self.vocabulary.add(cleaned_tok)
+                        curr_val += cleaned_tok + ' '
+                    proc_values.append(curr_val[:-1])
+
+                #metadata JSON files contains different samples having hemLenght field twice.
+                #   In this case just discard the one with no values.
+                if curr_field == 'hem length' and curr_field in self.processed_metadata[item_id]:
+                    if not len(self.processed_metadata[item_id][curr_field]):
+                        self.processed_metadata[item_id][curr_field] = proc_values
+                        continue
+                assert curr_field not in self.processed_metadata[item_id], 'Field {} presents twice in item {}. Please remove one of them (preferably the empty one)'.format(curr_field, item_id)
+                self.processed_metadata[item_id][curr_field] = proc_values
+
+
+    def repair_size_list(self, str_val):
+        """fixes availableSizes when it is a stringified list (e.g., "[' xl ', ' m ']"
+
+        Args:
+            str_val ([type]): [description]
+        """
+        repaired_list = []
+        for word in str_val[2:-2].split('\', \''):
+            repaired_list.append(word)
+        return repaired_list
 
 
     def __getitem__(self, index):
@@ -299,6 +371,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
 
     def get_vocabulary(self):
+        #vocabulary already contains words from item metadata
         voc = super().get_vocabulary()
         #add also the vocabulary for actions and attributes
         for _, attr in self._ATTR2STR.items():
@@ -308,6 +381,8 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         for _, act in self._ACT2STR.items():
             for word in act.split():
                 voc.add(word)
+
+        
 
         return voc
 

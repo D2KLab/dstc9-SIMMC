@@ -29,6 +29,7 @@ class ItemEmbeddingNetwork(nn.Module):
         fields_embedding_weights = torch.tensor(fields_embeddings)
         values_embedding_weights = torch.tensor(values_embeddings)
 
+        pdb.set_trace()
         assert fields_embedding_weights.shape[0] == values_embedding_weights.shape[0], 'Number of fields and values embedding does not match'
         assert fields_embedding_weights.shape[-1] == values_embedding_weights.shape[-1] and fields_embedding_weights.shape[-1] == self.embedding_dim,\
                                                                                     'Real embedding dimension does not match the declared one'

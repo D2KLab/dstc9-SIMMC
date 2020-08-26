@@ -78,7 +78,7 @@ def extract_single_metadata_embeddings(metadata_path, embeddings_path, save_path
         }
     )
 
-
+"""
 def extract_list_metadata_embeddings(metadata_path, embeddings_path, save_path):
     with open(metadata_path) as fp:
         metadata_dict = json.load(fp)
@@ -124,7 +124,8 @@ def extract_list_metadata_embeddings(metadata_path, embeddings_path, save_path):
                     values_emb.append(np.random.rand(300,))
                     unknown_words.add(v)
             item_ids.append(item_id)
-            item_embeddings.append((np.stack(fields_emb).mean(0), np.stack(values_emb).mean(0)))
+            pdb.set_trace()
+            item_embeddings.append([np.stack(fields_emb).mean(0), np.stack(values_emb).mean(0)])
     print('UNKNOWN WORDS: {}'.format(unknown_words))
 
     np.save(
@@ -136,7 +137,7 @@ def extract_list_metadata_embeddings(metadata_path, embeddings_path, save_path):
         }
     )
     print('embeddings saved in {}'.format(save_path))
-
+"""
 
 
 if __name__ == '__main__':
@@ -171,4 +172,4 @@ if __name__ == '__main__':
     if args.type == 'single':
         extract_single_metadata_embeddings(args.metadata, args.embeddings, args.save_path)
     else:
-        extract_list_metadata_embeddings(args.metadata, args.embeddings, args.save_path)
+        pass#extract_list_metadata_embeddings(args.metadata, args.embeddings, args.save_path)

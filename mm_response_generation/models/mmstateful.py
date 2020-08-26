@@ -380,6 +380,85 @@ class MMAE(nn.Module):
         pass
 
 
+    def collate_fn(self, batch):
+        """
+        This method prepares the batch for the LSTM: padding + preparation for pack_padded_sequence
+
+        Args:
+            batch (tuple): tuple of element returned by the Dataset.__getitem__()
+
+        Returns:
+            dial_ids (list): list of dialogue ids
+            turns (list): list of dialogue turn numbers
+            seq_tensor (torch.LongTensor): tensor with BxMAX_SEQ_LEN containing padded sequences of user transcript sorted by descending effective lengths
+            seq_lenghts: tensor with shape B containing the effective length of the correspondant transcript sequence
+            actions (torch.Longtensor): tensor with B shape containing target actions
+            attributes (torch.Longtensor): tensor with Bx33 shape containing attributes one-hot vectors, one for each sample.
+        """
+        dial_ids = [item[0] for item in batch]
+        turns = [item[1] for item in batch]
+        transcripts = [torch.tensor(item[2]) for item in batch]
+        history = [item[3] for item in batch]
+        actions = [item[4] for item in batch]
+        attributes = [item[5] for item in batch]
+        visual_context = [item[6] for item in batch]
+        visual_context = {'focus': [], 'history': []}
+        visual_context['focus'] = [item[6] for item in batch]
+        visual_context['history'] = [item[7] for item in batch]
+        responses_pool = [item[7] for item in batch]
+
+        assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
+        assert len(transcripts) == len(turns), 'Batch sizes do not match'
+        assert len(transcripts) == len(history), 'Batch sizes do not match'
+        assert len(transcripts) == len(actions), 'Batch sizes do not match'
+        assert len(transcripts) == len(attributes), 'Batch sizes do not match'
+        assert len(transcripts) == len(visual_context['focus']), 'Batch sizes do not match'
+        assert len(transcripts) == len(visual_context['history']), 'Batch sizes do not match'
+        assert len(transcripts) == len(responses_pool), 'Batch sizes do not match'
+
+        # reorder the sequences from the longest one to the shortest one.
+        # keep the correspondance with the target
+        transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
+        transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
+
+        for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
+            transcripts_tensor[idx, :seqlen] = seq.clone().detach()
+
+        # sort instances by sequence length in descending order
+        transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
+        transcripts_tensor = transcripts_tensor[perm_idx]
+        sorted_dial_ids = []
+        sorted_dial_turns = []
+        sorted_dial_history = []
+        sorted_responses = []
+        sorted_actions = []
+        sorted_attributes = []
+        sorted_visual_context = {'focus': [], 'history': []}
+        for idx in perm_idx:
+            sorted_dial_ids.append(dial_ids[idx])
+            sorted_dial_turns.append(turns[idx])
+            sorted_dial_history.append(history[idx])
+            sorted_actions.append(actions[idx])
+            sorted_attributes.append(attributes[idx])
+            sorted_visual_context['focus'].append(visual_context['focus'][idx])
+            sorted_visual_context['history'].append(visual_context['history'][idx])
+            sorted_responses.append(responses_pool[idx])
+
+        batch_dict = {}
+        batch_dict['utterances'] = transcripts_tensor
+        batch_dict['history'] = sorted_dial_history
+        batch_dict['actions'] = sorted_actions
+        batch_dict['attributes'] = sorted_attributes
+        batch_dict['visual_context'] = sorted_visual_context
+        batch_dict['seq_lengths'] = transcripts_lengths
+
+        return sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses
+
+
+    def __str__(self):
+        return super().__str__()
+
+
 class Triton(nn.Module):
     
     def __init__(self):
