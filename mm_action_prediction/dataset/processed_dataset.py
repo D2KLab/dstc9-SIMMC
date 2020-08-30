@@ -60,5 +60,5 @@ class FastDataset(Dataset):
         return len(self.data['utterances'])
 
 
-    def ___str__(self):
+    def __str__(self):
         return '{}_subtask({})'.format(self.dataset_name, self.task)

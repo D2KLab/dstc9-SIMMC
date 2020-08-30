@@ -251,6 +251,11 @@ class SIMMCDataset(Dataset):
 class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
     # conversion from attribute and action annotations format to english string
+    _ATTRS = {'embellishment', 'skirtStyle', 'availableSizes', 'dressStyle', 'material', 'clothingStyle', 'jacketStyle', 
+                    'sleeveLength', 'soldBy', 'price', 'ageRange', 'hemLength', 'size', 'warmthRating', 'sweaterStyle', 
+                    'forGender', 'madeIn', 'info', 'customerRating', 'hemStyle', 'hasPart', 'pattern', 'clothingCategory', 
+                    'forOccasion', 'waistStyle', 'sleeveStyle', 'amountInStock', 'waterResistance', 'necklineStyle', 'skirtLength', 
+                    'color', 'brand', 'sequential'}
     _ATTR2STR = {'skirtstyle': 'skirt style', 'availablesizes': 'available sizes', 'dressstyle': 'dress style', 'clothingstyle': 'clothing style', 
                 'jacketstyle': 'jacket style', 'sleevelength': 'sleeve length', 'soldby': 'sold by', 'agerange': 'age range', 'hemlength': 'hem length', 
                 'warmthrating': 'warmth rating', 'sweaterstyle': 'sweater style', 'forgender': 'for gender', 'madein': 'made in', 'customerrating': 'customer rating',
@@ -304,6 +309,10 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                 #field_tokens = tokenizer.tokenize(field)
                 field_tokens = re.split('_|\s', field)
                 for tok in field_tokens:
+                    """
+                    if tok not in self._ATTRS and tok != 'embellishments' and tok != 'type' and tok != 'hemlength':
+                        pdb.set_trace()
+                    """
                     cleaned_tok = self.token_clean(tok)
                     cleaned_tok = self._ATTR2STR[cleaned_tok] if cleaned_tok in self._ATTR2STR else cleaned_tok
                     self.vocabulary.add(cleaned_tok)

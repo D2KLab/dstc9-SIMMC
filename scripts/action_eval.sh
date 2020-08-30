@@ -1,10 +1,10 @@
 #/usr/bin/bash
 
-export MODEL=blindstateless
-#export MODEL=blindstateful
+#export MODEL=blindstateless
+export MODEL=blindstateful
 #export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_action_prediction/checkpoints/2020-08-23T17:33:26
+export CHECKPOINT_FOLDER=mm_action_prediction/checkpoints/2020-08-27T15:01:36
 
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/vocabulary.pkl
@@ -22,6 +22,6 @@ python mm_action_prediction/eval.py \
         --metadata_embeddings $METADATA_EMBEDDINGS\
         --cuda 0
 
-python mm_action_prediction/scripts/action_evaluation.py \
+python mm_action_prediction/utilities/action_evaluation.py \
         --action_json_path data/simmc_fashion/devtest/fashion_devtest_dials_api_calls.json\
         --model_output_path ${CHECKPOINT_FOLDER}/eval_out.json

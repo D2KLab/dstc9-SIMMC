@@ -40,7 +40,6 @@ def instantiate_model(args, word2id):
     elif args.model == 'mmstateful':
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                item_embeddings_path=args.metadata_embeddings,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
@@ -61,7 +60,6 @@ def plotting(epochs, losses_trend, checkpoint_dir):
 def forward_step(model, batch, candidates_pool, response_criterion, candidates_pool_size, device):
 
     batch['utterances'] = batch['utterances'].to(device)
-
     matching_logits, matching_scores = model(**batch,
                                             candidates_pool=candidates_pool,
                                             device=device)
@@ -112,7 +110,7 @@ def train(train_dataset, dev_dataset, args, device):
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)
 
     #prepare losses and optimizer
-    response_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(100.)).to(device) #pos_weight=torch.tensor(10.)
+    response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
@@ -128,9 +126,8 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader): #todo change to trainloader
-            pdb.set_trace()
-            #print(curr_step)
+        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader):
+            #pdb.set_trace()#print(curr_step)
             response_loss = forward_step(model, 
                                         batch=batch,
                                         candidates_pool=candidates_pool,
@@ -149,7 +146,6 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = []
         with torch.no_grad(): 
             for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(devloader):
-
                 response_loss = forward_step(model, 
                                             batch=batch,
                                             candidates_pool=candidates_pool,
@@ -210,15 +206,15 @@ if __name__ == '__main__':
         required=True,
         help="Path to vocabulary file")
     parser.add_argument(
+        "--metadata_ids",
+        type=str,
+        required=True,
+        help="Path to metadata ids file")
+    parser.add_argument(
         "--embeddings",
         type=str,
         required=True,
         help="Path to embeddings file")
-    parser.add_argument(
-        "--metadata_embeddings",
-        type=str,
-        required=True,
-        help="Path to metadata embeddings file")
     parser.add_argument(
         "--batch_size",
         required=True,
@@ -237,8 +233,8 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    train_dataset = FastDataset(dat_path=args.data, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
-    dev_dataset = FastDataset(dat_path=args.eval, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING) #? sampling on eval
+    train_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
+    dev_dataset = FastDataset(dat_path=args.eval, metadata_ids_path= args.metadata_ids, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING) #? sampling on eval
 
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 

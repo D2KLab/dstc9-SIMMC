@@ -52,7 +52,7 @@ class BlindStatelessLSTM(nn.Module):
         self.matching_layer = nn.Linear(in_features=2*self.hidden_size, out_features=1)
 
 
-    def forward(self, utterances, actions, attributes, candidates_pool, seq_lengths=None, device='cpu'):
+    def forward(self, utterances, candidates_pool, seq_lengths=None, device='cpu'):
         """Forward pass for BlindStatelessLSTM
 
         Args:
@@ -122,19 +122,14 @@ class BlindStatelessLSTM(nn.Module):
             actions (torch.Longtensor): tensor with B shape containing target actions
             arguments (torch.Longtensor): tensor with Bx33 shape containing arguments one-hot vectors, one for each sample.
         """
-
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
         transcripts = [torch.tensor(item[2]) for item in batch]
-        actions = [item[4] for item in batch]
-        attributes = [item[5] for item in batch]
-        responses_pool = [item[8] for item in batch]
+        responses_pool = [item[7] for item in batch]
 
         assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
         assert len(transcripts) == len(turns), 'Batch sizes do not match'
         assert len(transcripts) == len(responses_pool), 'Batch sizes do not match'
-        assert len(transcripts) == len(actions), 'Batch sizes do not match'
-        assert len(transcripts) == len(attributes), 'Batch sizes do not match'
 
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
@@ -149,20 +144,14 @@ class BlindStatelessLSTM(nn.Module):
         transcripts_tensor = transcripts_tensor[perm_idx]
         sorted_dial_ids = []
         sorted_dial_turns = []
-        sorted_actions = []
-        sorted_attributes = []
         sorted_responses = []
         for idx in perm_idx:
             sorted_dial_ids.append(dial_ids[idx])
             sorted_dial_turns.append(turns[idx])
-            sorted_actions.append(actions[idx])
-            sorted_attributes.append(attributes[idx])
             sorted_responses.append(responses_pool[idx])
         batch_dict = {}
         batch_dict['utterances'] = transcripts_tensor
         batch_dict['seq_lengths'] = transcripts_lengths
-        batch_dict['actions'] = sorted_actions
-        batch_dict['attributes'] = sorted_attributes
 
         # seq_lengths is used to create a pack_padded_sequence
         return sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses

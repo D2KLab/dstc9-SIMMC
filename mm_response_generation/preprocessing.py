@@ -57,7 +57,7 @@ class Collate():
                     curr_seq.append(word_id)
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
-
+        pdb.set_trace()
         # convert response candidates to word ids
         resp_ids = []
         for resps in responses_pool:
@@ -98,13 +98,13 @@ class Collate():
         visual_ids = []
         if actions[0] == self.ACT2STR['searchmemory']:
             assert len(visual_context[0]['memory']) != 0, 'SearchMemory action and empty memory list'
-            visual_ids = [torch.tensor(mem_id) for mem_id in visual_context[0]['memory']]
-            visual_ids = torch.stack(visual_ids)
+            visual_ids = [mem_id for mem_id in visual_context[0]['memory']]
         elif actions[0] == self.ACT2STR['searchdatabase']:
-            visual_ids = [torch.tensor(mem_id) for mem_id in visual_context[0]['db']]
-            visual_ids = torch.stack(visual_ids)
+            visual_ids = [mem_id for mem_id in visual_context[0]['db']]
         else:
-            visual_ids = torch.tensor(visual_context[0]['focus'])
+            visual_ids.append(visual_context[0]['focus'])
+        if not isinstance(visual_ids, list,):
+            pdb.set_trace()
 
         assert len(utterance_seq_ids) == 1, 'Only unitary batch sizes allowed'
         assert len(utterance_seq_ids) == len(dial_ids), 'Batch sizes do not match'

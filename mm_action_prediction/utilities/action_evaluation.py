@@ -62,7 +62,6 @@ def evaluate_action_prediction(gt_actions, model_actions):
                 continue
             # Case 1: Action mismatch -- record False for all attributes.
             if not action_match:
-                import pdb; pdb.set_trace()
                 for key in supervision.keys():
                     if key in IGNORE_ATTRIBUTES:
                         continue

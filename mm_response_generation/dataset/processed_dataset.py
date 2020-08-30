@@ -12,12 +12,13 @@ class FastDataset(Dataset):
     self.data.keys() = dict_keys(['dial_ids', 'turns', 'utterances', 'histories', 'actions', 
                                 'attributes', 'visual_contexts', 'seq_lengths', 'candidates'])
     """
-    def __init__(self, dat_path, distractors_sampling=-1):
+    def __init__(self, dat_path, metadata_ids_path, distractors_sampling=-1):
 
         super(FastDataset, self).__init__()
         self.data = torch.load(dat_path)
+        self.metadata = torch.load(metadata_ids_path)
         self.dataset_name = 'SIMMC'
-        self.task = 'response_retrienval'
+        self.task = 'response_retrieval'
         self.distractors_sampling = distractors_sampling
 
 
@@ -34,12 +35,14 @@ class FastDataset(Dataset):
         else:
             candidates = self.data['candidates'][index]
 
-        pdb.set_trace()
+        #fetch metadata ids for the items in the visual context
+        visual_items = []
+        for img_id in self.data['visual_contexts'][index]:
+            visual_items.append(self.metadata[img_id])
 
         return self.data['dial_ids'][index], self.data['turns'][index], self.data['utterances'][index],\
                 self.data['histories'][index], self.data['actions'][index], self.data['attributes'][index],\
-                self.data['visual_contexts']['focus'][index], self.data['visual_contexts']['history'][index],\
-                candidates
+                visual_items, candidates 
 
 
     def create_id2turns(self):

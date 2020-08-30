@@ -142,7 +142,7 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': False, #todo set to True
+            'shuffle': True, #todo set to True
             'num_workers': 0}
     trainloader = DataLoader(train_dataset, **params, collate_fn=model.collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=model.collate_fn)

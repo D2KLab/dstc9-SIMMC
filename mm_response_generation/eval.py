@@ -141,10 +141,10 @@ if __name__ == '__main__':
         required=True,
         help="Path to embedding file")
     parser.add_argument(
-        "--metadata_embeddings",
+        "--metadata_ids",
         type=str,
         required=True,
-        help="Path to metadata embeddings file")
+        help="Path to metadata ids file")
     parser.add_argument(
         "--cuda",
         default=None,
@@ -153,7 +153,7 @@ if __name__ == '__main__':
         help="id of device to use")
 
     args = parser.parse_args()
-    test_dataset = FastDataset(dat_path=args.data)
+    test_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids)
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 
     eval_dict = create_eval_dict(test_dataset)
