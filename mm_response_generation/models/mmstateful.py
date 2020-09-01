@@ -19,10 +19,11 @@ class MMStatefulLSTM(nn.Module):
     """
     _HIDDEN_SIZE = 300
 
-    def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, seed, OOV_corrections):
+    def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, seed, OOV_corrections, device='cpu'):
         torch.manual_seed(seed)
         super(MMStatefulLSTM, self).__init__()
 
+        self.device = device
         self.memory_hidden_size = self._HIDDEN_SIZE
         n_encoders, n_heads = 1, 2
         
@@ -51,7 +52,7 @@ class MMStatefulLSTM(nn.Module):
 
 
     def forward(self, utterances, history, actions, attributes, focus_items, 
-                candidates_pool, seq_lengths=None, device='cpu'):
+                candidates_pool, seq_lengths=None):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
             for the field name and values is a list of values where each value is a tensor of word ids.
@@ -68,6 +69,19 @@ class MMStatefulLSTM(nn.Module):
         Returns:
             [type]: [description]
         """
+        #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
+        assert utterances.shape[0] == len(history), 'Inconsistent batch size'
+        assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
+        assert utterances.shape[0] == len(attributes), 'Inconsistent batch size'
+        assert utterances.shape[0] == len(focus_items), 'Inconsistent batch size'
+        assert utterances.shape[0] == candidates_pool.shape[0], 'Inconsistent batch size'
+        curr_device = utterances.device
+        for idx, _ in enumerate(history):
+            if len(history[idx]):
+                history[idx] = history[idx].to(curr_device)
+        for idx, _ in enumerate(focus_items):
+            focus_items[idx][0] = focus_items[idx][0].to(curr_device)
+            focus_items[idx][1] = focus_items[idx][1].to(curr_device)
 
         # todo use attributes to enforce the user utterance?
         # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
@@ -80,7 +94,7 @@ class MMStatefulLSTM(nn.Module):
             if not len(history_sample):
                 embedded_hist_tensor.append([])
             else:
-                embedded_hist_tensor.append(self.word_embeddings_layer(history_sample.to(device)))
+                embedded_hist_tensor.append(self.word_embeddings_layer(history_sample))
         h_t = []
         for h_embedding in embedded_hist_tensor:
             if not len(h_embedding):
@@ -91,11 +105,8 @@ class MMStatefulLSTM(nn.Module):
         #embedded_vis_tensor shape v_t[<sample_in_batch>][0/1].shape = [N_FIELDSx300]
         #v_t shape [<sample_in_batch>]x300
         #v_t_tilde contains contextual embedding for each item in the batch. Shape [Bx300]
-        v_t = self.embed_v_context(focus_items, device)
+        v_t = self.encode_v_context(focus_items)
         v_t_tilde = torch.stack([self.triton_attention(utt, v[0], v[1]) for utt, v in zip(u_t, v_t)])
-
-        assert u_t.shape[0] == len(h_t), 'Inconsistent batch size'
-        assert u_t.shape[0] == len(v_t_tilde), 'Inconsistent batch size'
 
         # compute history context
         h_t_tilde = []
@@ -103,11 +114,10 @@ class MMStatefulLSTM(nn.Module):
             if not len(h_t[idx]):
                 h_t_tilde.append(u_t[idx])
             else:
-                h_t_tilde.append(self.memory_net(u_t[idx], h_t[idx], device=device))
+                h_t_tilde.append(self.memory_net(u_t[idx], h_t[idx]))
         h_t_tilde = torch.stack(h_t_tilde)
 
         #encode candidates
-        pdb.set_trace()
         candidates_emb = self.word_embeddings_layer(candidates_pool)
         encoded_candidates = torch.stack([self.sentence_encoder(candidates) for candidates in candidates_emb])
 
@@ -117,26 +127,12 @@ class MMStatefulLSTM(nn.Module):
         return out
 
 
-    def embed_v_context(self, focus_images, device):
+    def encode_v_context(self, focus_images):
         v_batch = []
         for item in focus_images:
-            for (key, val) in item:
-                _, (k_ht, _) = self.sentence_encoder(key)
-
-
-            """
-            curr_item_fields = []
-            curr_item_values = []
-            for (field, values) in item:
-                curr_item_fields.append(self.word_embeddings_layer(field.to(device)).mean(0))
-                values_emb = []
-                for v in values:
-                    #an unknown bug during preprocessing causes sometimes to have 0-d value tensors
-                    #correct_v = v.unsqueeze(0) if v.shape == torch.Size([]) else v
-                    values_emb.append(self.word_embeddings_layer(v.to(device)).mean(0)) #averaging values with multiple tokens
-                curr_item_values.append(torch.stack(values_emb).mean(0))
-            v_batch.append((torch.stack(curr_item_fields), torch.stack(curr_item_values)))
-            """
+            k_ht = self.sentence_encoder(self.word_embeddings_layer(item[0]))
+            v_ht = self.sentence_encoder(self.word_embeddings_layer(item[1]))
+            v_batch.append([k_ht, v_ht])
         return v_batch
 
 
@@ -217,8 +213,7 @@ class MMStatefulLSTM(nn.Module):
             for item_idx, (k, v) in enumerate(item):
                 curr_keys[item_idx, :batch_klens[batch_idx][item_idx]] = k.clone().detach()
                 curr_vals[item_idx, :batch_vlens[batch_idx][item_idx]] = v.clone().detach()
-            padded_focus.append((curr_keys, curr_vals))
-        pdb.set_trace()
+            padded_focus.append([curr_keys, curr_vals])
 
         # sort instances by sequence length in descending order and order targets to keep the correspondance
         transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
@@ -251,6 +246,7 @@ class MMStatefulLSTM(nn.Module):
 
     def __str__(self):
         return super().__str__()
+
 
 
 class CandidateAttentiveOutput(nn.Module):
@@ -299,14 +295,16 @@ class SentenceEncoder(nn.Module):
         self.layerNorm = nn.LayerNorm(hidden_size)
 
 
-    def forward(self, input, seq_lengths=None):
+    def forward(self, seq, seq_lengths=None):
 
         if seq_lengths is not None:
             # pack padded sequence
-            input_seq = pack_padded_sequence(input, seq_lengths.cpu().numpy(), batch_first=True)
+            input_seq = pack_padded_sequence(seq, seq_lengths, batch_first=True) #seq_lengths.cpu().numpy()
         else:
-            input_seq = input
+            input_seq = seq
 
+        #to call every forward if DataParallel is used. Otherwise only once inside __init__()
+        self.encoder.flatten_parameters()
         out_enc, (h_t, c_t) = self.encoder(input_seq)
         bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
         """unpack not needed. We don't use the output
@@ -336,7 +334,7 @@ class MemoryNet(nn.Module):
 
     def forward(self, input, context, device='cpu'):
         query = self.query_encoder(input)
-        memory = self.memory_encoder(context) + self.get_positional_embeddings(context.shape[0], self.memory_hidden_size).to(device)
+        memory = self.memory_encoder(context) + self.get_positional_embeddings(context.shape[0], self.memory_hidden_size).to(context.device)
 
         attn_logits = torch.matmul(query, torch.transpose(memory, 0, 1))/math.sqrt(self.memory_hidden_size)
         attn_scores = F.softmax(attn_logits, -1)

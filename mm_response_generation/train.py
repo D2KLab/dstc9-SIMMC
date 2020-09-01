@@ -15,13 +15,13 @@ from torch.utils.data import DataLoader
 from config import TrainConfig
 from dataset import FastDataset
 from models import BlindStatelessLSTM, MMStatefulLSTM
-from utilities import Logger, plotting_loss
+from utilities import Logger, plotting_loss, DataParallelV2
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3,5"  # specify which GPU(s) to be used
 
 
-def instantiate_model(args, word2id):
+def instantiate_model(args, word2id, device):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
@@ -43,7 +43,8 @@ def instantiate_model(args, word2id):
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
-                                OOV_corrections=False)
+                                OOV_corrections=False,
+                                device=device)
     else:
         raise Exception('Model not present!')
 
@@ -57,13 +58,25 @@ def plotting(epochs, losses_trend, checkpoint_dir):
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Global loss trend', x_label='epochs', y_label='loss')
 
 
+def move_batch_to_device(batch, device):
+    batch['utterances'] = batch['utterances'].to(device)
+    for h_idx in range(len(batch['history'])):
+        if len(batch['history'][h_idx]):
+            batch['history'][h_idx] = batch['history'][h_idx].to(device)
+    for i_idx in range(len(batch['focus_items'])):
+        batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
+        batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
+    batch['seq_lengths'] = batch['seq_lengths'].to(device)
+
+
 def forward_step(model, batch, candidates_pool, response_criterion, device):
     #todo cross entropy but for regression (not a classification problem, maximize the first score using softmax will minime also the others)
-    batch['utterances'] = batch['utterances'].to(device)
+    move_batch_to_device(batch, device)
     candidates_pool = candidates_pool.to(device)
+
     matching_logits = model(**batch,
-                            candidates_pool=candidates_pool,
-                            device=device)
+                            candidates_pool=candidates_pool)
+
     # the true response is always the first in the list of candidates
     matching_targets = torch.ones(batch['utterances'].shape[0], dtype=torch.long).to(device)
     response_loss = response_criterion(matching_logits, matching_targets)
@@ -76,9 +89,9 @@ def train(train_dataset, dev_dataset, args, device):
     # prepare checkpoint folder
     curr_date = datetime.datetime.now().isoformat().split('.')[0]
     checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
-    #os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
+    os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
     # prepare logger to redirect both on file and stdout
-    #sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -92,14 +105,14 @@ def train(train_dataset, dev_dataset, args, device):
         vocabulary = np.load(fp, allow_pickle=True)
         vocabulary = dict(vocabulary.item())
 
-    #torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
+    torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
-    model = instantiate_model(args, word2id=vocabulary)
+    model = instantiate_model(args, word2id=vocabulary, device=device)
     # work on multiple GPUs when available
-    if torch.cuda.device_count() > 1 and False:
-        model = torch.nn.DataParallel(model)
+    if torch.cuda.device_count() > 1:
+        model = DataParallelV2(model)
     model.to(device)
     print('using {} GPU(s)'.format(torch.cuda.device_count()))
     print('MODEL NAME: {}'.format(args.model))
@@ -107,11 +120,10 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': False, #todo set to True
-            'num_workers': 0,
-            'pin_memory': True} #pin_memory=True
-    #collate_fn = model.collate_fn if torch.cuda.device_count() <= 1 else model.module.collate_fn #todo
-    collate_fn = model.collate_fn
+            'shuffle': True, #todo set to True
+            'num_workers': 2,
+            'pin_memory': True} #'pin_memory': True
+    collate_fn = model.collate_fn if torch.cuda.device_count() <= 1 else model.module.collate_fn
     trainloader = DataLoader(train_dataset, **params, collate_fn=collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate_fn)
 
@@ -135,7 +147,7 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
         for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader):
-            step_start = time.time()
+            #step_start = time.time()
             #print(curr_step)
             response_loss = forward_step(model, 
                                         batch=batch,
@@ -147,10 +159,10 @@ def train(train_dataset, dev_dataset, args, device):
             response_loss.backward()
             optimizer.step()
             step_end = time.time()
-            h_count = (step_end-step_start) /60 /60
-            m_count = ((step_end-step_start)/60) % 60
-            s_count = (step_end-step_start) % 60
-            print('step {} time: {}h:{}m:{}s'.format(curr_step, round(h_count), round(m_count), round(s_count)))
+            #h_count = (step_end-step_start) /60 /60
+            #m_count = ((step_end-step_start)/60) % 60
+            #s_count = (step_end-step_start) % 60
+            #print('step {} time: {}h:{}m:{}s'.format(curr_step, round(h_count), round(m_count), round(s_count)))
 
             curr_epoch_losses.append(response_loss.item())
         losses_trend['train'].append(np.mean(curr_epoch_losses))

@@ -77,8 +77,8 @@ class WordEmbeddingNetwork(nn.Module):
                 p.requires_grad = False
 
 
-    def forward(self, input):
-        return self.embedding_layer(input)
+    def forward(self, batch):
+        return self.embedding_layer(batch)
 
 
     def load_embeddings_from_file(self, embeddings_path):
