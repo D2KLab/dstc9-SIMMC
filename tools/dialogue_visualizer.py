@@ -19,14 +19,15 @@ for dial_id, dial in dataset.id2dialog.items():
             printed=False
             continue
         print('-----------')
-        print('+U: {}\n+W: {}\n-V: {}\n@Coref: {}\n*FOC: {}\n*MEM: {}\n*DB: {}'.format(
+        print('+U: {}\n+W: {}\n-V: {}\n@Coref: {}\n*FOC: {}\n*MEM: {}\n*DB: {}\n*KEYSTROKE: {}'.format(
                                 turn['transcript'],
                                 turn['system_transcript'],
                                 turn['visual_objects'],
                                 coref_map,
                                 task['focus_image'],
                                 task['memory_images'],
-                                task['database_images']))
+                                task['database_images'],
+                                turn['raw_assistant_keystrokes']))
         print('-----------')
         printed=True
     if printed:

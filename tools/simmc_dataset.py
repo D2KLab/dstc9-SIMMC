@@ -90,6 +90,7 @@ class SIMMCDataset(Dataset):
         focus_id, memory_ids, db_ids = self.extract_visual_context(dial_id, turn, inverted_coref_map)
         visual_context_dict = {'focus': focus_id, 'memory': memory_ids, 'db': db_ids}
 
+
         # extract dialogue history
         history = []
         for t in range(turn):
@@ -105,7 +106,9 @@ class SIMMCDataset(Dataset):
                 attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
             return_tuple = (dial_id, turn, current_transcript, history, visual_context_dict, self.id2act[dial_id][turn]['action'], attributes)
             if isinstance(self, SIMMCDatasetForResponseGeneration,):
+                return_tuple += (self.id2actfocus[dial_id][turn],)
                 return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],)
+
             return return_tuple
 
 
@@ -359,13 +362,13 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
 
     def __getitem__(self, index):
-        dial_id, turn, transcript, history, visual_context, action, attributes, candidates_ids = super().__getitem__(index)
+        dial_id, turn, transcript, history, visual_context, action, attributes, focus, candidates_ids = super().__getitem__(index)
         #convert actions and attributes to english strings
         action = action.lower() if action.lower() not in self._ACT2STR else self._ACT2STR[action.lower()]
         attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
         candidate_responses = [self.processed_candidates[candidate_id] for candidate_id in candidates_ids]
 
-        return dial_id, turn, transcript, history, visual_context, action, attributes, candidate_responses
+        return dial_id, turn, transcript, history, focus, action, attributes, candidate_responses
 
 
     def __len__(self):
@@ -387,9 +390,6 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         for _, act in self._ACT2STR.items():
             for word in act.split():
                 voc.add(word)
-
-        
-
         return voc
 
 
@@ -413,12 +413,15 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
     def load_actions(self, actions_path):
         #TODO sort id2act based on 'turn_idx' field
         self.id2act = {}
+        self.id2actfocus = {}
         with open(actions_path) as fp:
             raw_actions = json.load(fp)
         for action in raw_actions:
             if action['dialog_id'] in self.skipped_dialogs:
                 continue
+            assert len(action['actions']) == len(action['focus_images']), 'focus_images has different length than number of actions'
             self.id2act[action['dialog_id']] = action['actions']
+            self.id2actfocus[action['dialog_id']] = action['focus_images']
         
         #check if we have actions for all the turns
         for dial_id in self.ids:

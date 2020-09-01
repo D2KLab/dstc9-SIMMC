@@ -25,14 +25,6 @@ class MMStatefulLSTM(nn.Module):
 
         self.memory_hidden_size = self._HIDDEN_SIZE
         n_encoders, n_heads = 1, 2
-
-        # MAE
-        # MN
-        # ATTRIBUTES-ITEM attention
-        # Candidate ENCODER
-        # Matching network
-
-        # NETWORK
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
@@ -51,32 +43,14 @@ class MMStatefulLSTM(nn.Module):
                                         d_f=int(self.emb_dim/2),
                                         n_heads=n_heads,
                                         n_layers=n_encoders)
-        
-        """
-        self.item_dim_reduction = nn.Linear(in_features=self.item_embeddings_layer.embedding_dim,
-                                            out_features=2*self.memory_hidden_size)
 
-        self.utterance_memory_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 4*self.memory_hidden_size),
-                                                    nn.Tanh(),
-                                                    nn.Dropout(p=.5),
-                                                    nn.Linear(4*self.memory_hidden_size, 1),
-                                                    nn.Dropout(p=.5)) #todo introduce layerNorm
-        self.linear_act_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
-                                                    nn.Dropout(p=.5),
-                                                    nn.ReLU())
-        self.linear_args_post_attn = nn.Sequential(nn.Linear(4*self.memory_hidden_size, 2*self.memory_hidden_size),
-                                                    nn.Dropout(p=.5),
-                                                    nn.ReLU())
-
-        #self.multiturn_actions_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_actions)
-        #self.multiturn_args_outlayer = nn.Linear(in_features=2*self.memory_hidden_size, out_features=self.num_attrs)
-        
-        #self.singleturn_actions_outlayer = nn.Linear(in_features=4*self.memory_hidden_size, out_features=self.num_actions)
-        #self.singleturn_args_outlayer = nn.Linear(in_features=4*self.memory_hidden_size, out_features=self.num_attrs)
-        """
+        self.layerNorm = nn.LayerNorm(self.memory_hidden_size)
+        self.dropout = nn.Dropout(p=.1)
+        self.out_layer = CandidateAttentiveOutput(in_features=self.memory_hidden_size, 
+                                                hidden_size=int(self.memory_hidden_size/2))
 
 
-    def forward(self, utterances, history, actions, attributes, visual_context, 
+    def forward(self, utterances, history, actions, attributes, focus_items, 
                 candidates_pool, seq_lengths=None, device='cpu'):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
@@ -114,17 +88,16 @@ class MMStatefulLSTM(nn.Module):
             else:
                 h_t.append(self.sentence_encoder(h_embedding))
 
-        #embedded_vis_tensor shape v_t[<sample_in_batch>][<item_n>][0/1].shape = [N_FIELDSx300]
-        #v_t shape [<sample_in_batch>][<n_items>]x300
-        embedded_vis_tensor = self.embed_v_context(visual_context, device)
-        v_t = []
-        for utt, v in zip(u_t, embedded_vis_tensor):
-            curr_batch = torch.stack([self.triton_attention(utt, item[0], item[1]) for item in v])
-            v_t.append(curr_batch)
+        #embedded_vis_tensor shape v_t[<sample_in_batch>][0/1].shape = [N_FIELDSx300]
+        #v_t shape [<sample_in_batch>]x300
+        #v_t_tilde contains contextual embedding for each item in the batch. Shape [Bx300]
+        v_t = self.embed_v_context(focus_items, device)
+        v_t_tilde = torch.stack([self.triton_attention(utt, v[0], v[1]) for utt, v in zip(u_t, v_t)])
 
         assert u_t.shape[0] == len(h_t), 'Inconsistent batch size'
-        assert u_t.shape[0] == len(v_t), 'Inconsistent batch size'
+        assert u_t.shape[0] == len(v_t_tilde), 'Inconsistent batch size'
 
+        # compute history context
         h_t_tilde = []
         for idx in range(u_t.shape[0]):
             if not len(h_t[idx]):
@@ -132,182 +105,39 @@ class MMStatefulLSTM(nn.Module):
             else:
                 h_t_tilde.append(self.memory_net(u_t[idx], h_t[idx], device=device))
         h_t_tilde = torch.stack(h_t_tilde)
+
+        #encode candidates
         pdb.set_trace()
-            
+        candidates_emb = self.word_embeddings_layer(candidates_pool)
+        encoded_candidates = torch.stack([self.sentence_encoder(candidates) for candidates in candidates_emb])
+
+        #try the fusion with a fnn also
+        turns_repr = v_t_tilde + h_t_tilde
+        out = self.out_layer(turns_repr, encoded_candidates)
+        return out
 
 
-
-        """
-        # separate single from multi-turn
-        st_samples = []
-        st_visual = []
-        st_pos = set()
-        mt_samples = []
-        mt_visual = []
-        mt_history = []
-        for batch_idx, history_item in enumerate(history):
-            if len(history_item) == 0:
-                st_pos.add(batch_idx)
-                st_samples.append(u_t[batch_idx])
-                st_visual.append(items_contextual[batch_idx])
-            else:
-                mt_samples.append(u_t[batch_idx])
-                mt_history.append(history[batch_idx])
-                mt_visual.append(items_contextual[batch_idx])
-
-        """
-
-        """
-        if len(st_samples):
-            # concat u_t with correspondent v_t
-            single_u_t = torch.stack(single_turns)
-            single_v_t = torch.stack(single_turns_v_focus)
-            #pos = list(single_turns_pos)
-            single_u_v_concat = torch.cat((single_u_t, single_v_t), dim=-1)
-            # compute output for single turn dialogues
-            act_out1 = self.singleturn_actions_outlayer(single_u_v_concat)
-            args_out1 = self.singleturn_args_outlayer(single_u_v_concat)
-
-        if len(mt_samples):
-            multi_u_t = torch.stack(multi_turns)
-            multi_v_t = torch.stack(multi_turns_v_focus)
-            multi_v_t = self.item_dim_reduction(multi_v_t)
-
-            # memory bank is a list of BATCH_SIZE tensors, each of them having shape N_TURNSx2MEMORY_HIDDEN_SIZE
-            lang_memory = self.encode_history(multi_turns_history, device)        
-            assert len(multi_turns) == len(lang_memory), 'Wrong memory size'
-
-            #visual_memory = self.encode_visual_history(multi_turns_v_history, device) #todo visual memory
-            #assert len(multi_turns) == len(visual_memory), 'Wrong memory size'
-
-            # c_t shape [MULTI_TURNS_SET_SIZE x MEMORY_HIDDEN_SIZE]
-            c_t = self.attention_over_memory(multi_u_t, lang_memory)
-            mm_c_t = c_t * multi_v_t
-
-            #? Hadamard product between c_t and u_t? It is simply "tensor1 * tensor2"
-            ut_ct_concat = torch.cat((multi_u_t, mm_c_t), dim=-1)
-            c_t_tilde1 = self.linear_act_post_attn(ut_ct_concat)
-
-            ut_ct1_concat = torch.cat((multi_u_t, c_t_tilde1), dim=-1)
-            c_t_tilde2 = self.linear_args_post_attn(ut_ct1_concat)
-
-            act_out2 = self.multiturn_actions_outlayer(c_t_tilde1)
-            args_out2 = self.multiturn_args_outlayer(c_t_tilde2)
-
-        # recompose the output
-        act_out = []
-        args_out = []
-        pos1 = 0
-        pos2 = 0
-        for idx in range(utterances.shape[0]):
-            if idx in single_turns_pos:
-                act_out.append(act_out1[pos1])
-                args_out.append(args_out1[pos1])
-                pos1 += 1
-            else:
-                act_out.append(act_out2[pos2])
-                args_out.append(args_out2[pos2])
-                pos2 += 1
-        act_out = torch.stack(act_out)
-        args_out = torch.stack(args_out)
-
-        act_probs = F.softmax(act_out, dim=-1)
-        args_probs = torch.sigmoid(args_out)
-        return act_out, args_out, act_probs, args_probs
-        """
-
-
-    def embed_v_context(self, visual_context, device):
-        
+    def embed_v_context(self, focus_images, device):
         v_batch = []
-        for batch_sample in visual_context:
-            curr_items = []
-            for item in batch_sample:
-                curr_item_fields = []
-                curr_item_values = []
-                for (field, values) in item:
-                    curr_item_fields.append(self.word_embeddings_layer(field.to(device)).mean(0))
-                    values_emb = []
-                    for v in values:
-                        #an unknown bug during preprocessing causes sometimes to have 0-d value tensors
-                        correct_v = v.unsqueeze(0) if v.shape == torch.Size([]) else v
-                        values_emb.append(self.word_embeddings_layer(correct_v.to(device)).mean(0)) #averaging values with multiple tokens
-                    curr_item_values.append(torch.stack(values_emb).mean(0))
-                curr_items.append((torch.stack(curr_item_fields), torch.stack(curr_item_values)))
-            v_batch.append(curr_items)
+        for item in focus_images:
+            for (key, val) in item:
+                _, (k_ht, _) = self.sentence_encoder(key)
+
+
+            """
+            curr_item_fields = []
+            curr_item_values = []
+            for (field, values) in item:
+                curr_item_fields.append(self.word_embeddings_layer(field.to(device)).mean(0))
+                values_emb = []
+                for v in values:
+                    #an unknown bug during preprocessing causes sometimes to have 0-d value tensors
+                    #correct_v = v.unsqueeze(0) if v.shape == torch.Size([]) else v
+                    values_emb.append(self.word_embeddings_layer(v.to(device)).mean(0)) #averaging values with multiple tokens
+                curr_item_values.append(torch.stack(values_emb).mean(0))
+            v_batch.append((torch.stack(curr_item_fields), torch.stack(curr_item_values)))
+            """
         return v_batch
-
-
-    def encode_visual(self, visual_context, device):
-        focus = self.item_embeddings_layer(visual_context['focus'].to(device))
-        history = []
-        for history_item in visual_context['history']:
-            if not len(history_item):
-                history.append([])
-            else:
-                history.append(self.item_embeddings_layer(history_item.to(device)))
-        return focus, history
-
-
-    def encode_history(self, history, device):
-        #todo turn embedding based on previous turns (hierarchical recurrent encoder - HRE)
-        encoded_batch_history = []
-        for dial in history:
-            hiddens = []
-            positional_embeddings = get_positional_embeddings(len(dial), 2*self.memory_hidden_size).to(device)
-            assert positional_embeddings.shape[0] == len(dial)
-            for turn, pos_emb in zip(dial, positional_embeddings):
-                emb = self.word_embeddings_layer(turn.unsqueeze(0).to(device))
-                # h_t.shape = [num_directions x 1 x HIDDEN_SIZE]
-                out, (h_t, c_t) = self.utterance_encoder(emb)
-                bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
-                pos_bidirectional_h_t = bidirectional_h_t+pos_emb
-                hiddens.append(pos_bidirectional_h_t.squeeze(0))
-            assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
-            encoded_batch_history.append(torch.stack(hiddens))
-        return encoded_batch_history
-
-
-    def encode_visual_history(self, history, device):
-        encoded_batch_history = []
-        for dial in history:
-            hiddens = []
-            for turn in dial:
-                m_t = self.item_dim_reduction(turn.unsqueeze(0).to(device))
-                hiddens.append(m_t.squeeze(0))
-            assert len(hiddens) > 0, 'Impossible to encode history for single turn instance'
-            encoded_batch_history.append(torch.stack(hiddens))
-        return encoded_batch_history
-
-
-    def attention_over_memory(self, u_t, memory_bank):
-        # input for attention layer consists of pairs (utterance_j, memory_j_i), for each j, i
-        attn_input_list = []
-        for dial_idx, dial_mem in enumerate(memory_bank):
-            num_turns = dial_mem.shape[0]
-            #utterance_mem_concat shape N_TURNS x (utterance_size + memory_size)
-            utterance_mem_concat = torch.cat((u_t[dial_idx].expand(num_turns, -1), dial_mem), dim=-1)
-            attn_input_list.append(utterance_mem_concat)
-
-        scores = []
-        for idx, input_tensor in enumerate(attn_input_list):
-            curr_out = self.utterance_memory_attn(input_tensor)
-            scores.append(curr_out)
-
-        attn_weights = []
-        for score in scores:
-            attn = F.softmax(score, dim=0)
-            attn_weights.append(attn)
-
-        assert len(attn_weights) == len(memory_bank), 'Memory size and attention weights do not match'
-        weighted_sum_list = []
-        for attn, mem in zip(attn_weights, memory_bank):
-            weighted_mem = attn * mem
-            weighted_sum = torch.sum(weighted_mem, dim=0)
-            weighted_sum_list.append(weighted_sum)
-        weighted_sum = torch.stack(weighted_sum_list)
-
-        return weighted_sum
 
 
     def collate_fn(self, batch):
@@ -331,7 +161,7 @@ class MMStatefulLSTM(nn.Module):
         history = [item[3] for item in batch]
         actions = [item[4] for item in batch]
         attributes = [item[5] for item in batch]
-        visual_context = [item[6] for item in batch]
+        focus_items = [item[6] for item in batch]
         responses_pool = [item[7] for item in batch]
 
         assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
@@ -339,7 +169,7 @@ class MMStatefulLSTM(nn.Module):
         assert len(transcripts) == len(history), 'Batch sizes do not match'
         assert len(transcripts) == len(actions), 'Batch sizes do not match'
         assert len(transcripts) == len(attributes), 'Batch sizes do not match'
-        assert len(transcripts) == len(visual_context), 'Batch sizes do not match'
+        assert len(transcripts) == len(focus_items), 'Batch sizes do not match'
         assert len(transcripts) == len(responses_pool), 'Batch sizes do not match'
 
         # reorder the sequences from the longest one to the shortest one.
@@ -361,38 +191,96 @@ class MMStatefulLSTM(nn.Module):
                 history_tensor[idx, :seqlen] = seq.clone().detach()
             padded_history.append(history_tensor)
 
+        #pad the response candidates
+        batch_lens = torch.tensor([list(map(len, pool_sample)) for pool_sample in responses_pool], dtype=torch.long)
+        pools_tensor = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()), dtype=torch.long)
+        for batch_idx, (pool_lens, pool_sample) in enumerate(zip(batch_lens, responses_pool)):       
+            for pool_idx, (seq, seqlen) in enumerate(zip(pool_sample, pool_lens)):
+                pools_tensor[batch_idx, pool_idx, :seqlen] = seq.clone().detach()
+
+        #pad focus items
+        padded_focus = []
+        keys = [[datum[0] for datum in item] for item in focus_items]
+        vals = [[datum[1] for datum in item] for item in focus_items]
+        batch_klens = [list(map(len, key)) for key in keys]
+        batch_vlens = [list(map(len, val)) for val in vals]
+        klens_max, vlens_max = 0, 0
+        for klens, vlens in zip(batch_klens, batch_vlens):
+            curr_kmax = max(klens)
+            curr_vmax = max(vlens)
+            klens_max = curr_kmax if curr_kmax > klens_max else klens_max
+            vlens_max = curr_vmax if curr_vmax > vlens_max else vlens_max
+
+        for batch_idx, item in enumerate(focus_items):
+            curr_keys = torch.zeros((len(item), klens_max), dtype=torch.long)
+            curr_vals = torch.zeros((len(item), vlens_max), dtype=torch.long)
+            for item_idx, (k, v) in enumerate(item):
+                curr_keys[item_idx, :batch_klens[batch_idx][item_idx]] = k.clone().detach()
+                curr_vals[item_idx, :batch_vlens[batch_idx][item_idx]] = v.clone().detach()
+            padded_focus.append((curr_keys, curr_vals))
+        pdb.set_trace()
+
         # sort instances by sequence length in descending order and order targets to keep the correspondance
         transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
         transcripts_tensor = transcripts_tensor[perm_idx]
+        pools_tensor = pools_tensor[perm_idx]
         sorted_dial_ids = []
         sorted_dial_turns = []
         sorted_dial_history = []
-        sorted_responses = []
         sorted_actions = []
         sorted_attributes = []
-        sorted_visual_context = []
+        sorted_focus_items = []
         for idx in perm_idx:
             sorted_dial_ids.append(dial_ids[idx])
             sorted_dial_turns.append(turns[idx])
             sorted_dial_history.append(padded_history[idx])
             sorted_actions.append(actions[idx])
             sorted_attributes.append(attributes[idx])
-            sorted_visual_context.append(visual_context[idx])
-            sorted_responses.append(responses_pool[idx])
+            sorted_focus_items.append(padded_focus[idx])
 
         batch_dict = {}
         batch_dict['utterances'] = transcripts_tensor
         batch_dict['history'] = sorted_dial_history
         batch_dict['actions'] = sorted_actions
         batch_dict['attributes'] = sorted_attributes
-        batch_dict['visual_context'] = sorted_visual_context
+        batch_dict['focus_items'] = sorted_focus_items
         batch_dict['seq_lengths'] = transcripts_lengths
 
-        return sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses
+        return sorted_dial_ids, sorted_dial_turns, batch_dict, pools_tensor
 
 
     def __str__(self):
         return super().__str__()
+
+
+class CandidateAttentiveOutput(nn.Module):
+
+    def __init__(self, in_features, hidden_size):
+        super(CandidateAttentiveOutput, self).__init__()
+
+        self.in_features = in_features
+        self.hidden_size = hidden_size
+        self.query_encoder = nn.Linear(in_features=in_features, out_features=hidden_size)
+        self.candidate_encoder = nn.Linear(in_features=in_features, out_features=hidden_size)
+
+
+    def forward(self, turns_repr, candidates):
+        #query shape [B x hidden_size]
+        #cand_enc shape [B x N_CANDIDATES x hidden_size]
+        query = self.query_encoder(turns_repr)
+        cand_enc = self.candidate_encoder(candidates)
+        attn_logits = torch.bmm(query[:, None], torch.transpose(cand_enc, 1, 2))/math.sqrt(self.hidden_size)
+        return attn_logits.squeeze(1)
+        
+        """
+        out = []
+        for turn_repr, c in zip(turns_repr, candidates):
+            query = self.query_encoder(turn_repr)
+            c_enc = self.candidate_encoder(c)
+            attn_logits = torch.matmul(query, torch.transpose(c_enc, 0, 1))/math.sqrt(self.hidden_size)
+            out.append(attn_logits)
+        return torch.stack(out)
+        """
 
 
 
@@ -450,7 +338,7 @@ class MemoryNet(nn.Module):
         query = self.query_encoder(input)
         memory = self.memory_encoder(context) + self.get_positional_embeddings(context.shape[0], self.memory_hidden_size).to(device)
 
-        attn_logits = torch.matmul(query, torch.transpose(memory, 0, 1))
+        attn_logits = torch.matmul(query, torch.transpose(memory, 0, 1))/math.sqrt(self.memory_hidden_size)
         attn_scores = F.softmax(attn_logits, -1)
         weighted_memory = torch.sum(attn_scores[:, None] * memory, dim=0)
 
@@ -563,7 +451,6 @@ class TritonCrossAttentionHead(nn.Module):
         self.V = nn.Linear(emb_dim, d_v)
 
     def forward(self, u_t, k_t, v_t):
-
         query = self.Q(u_t)
         key = self.K(k_t)
         value = self.V(v_t)

@@ -36,13 +36,11 @@ class FastDataset(Dataset):
             candidates = self.data['candidates'][index]
 
         #fetch metadata ids for the items in the visual context
-        visual_items = []
-        for img_id in self.data['visual_contexts'][index]:
-            visual_items.append(self.metadata[img_id])
+        focus_item = self.metadata[self.data['focus'][index]]
 
         return self.data['dial_ids'][index], self.data['turns'][index], self.data['utterances'][index],\
                 self.data['histories'][index], self.data['actions'][index], self.data['attributes'][index],\
-                visual_items, candidates 
+                focus_item, candidates 
 
 
     def create_id2turns(self):

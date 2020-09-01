@@ -26,11 +26,12 @@ class Collate():
         self.word2id = word2id
         self.unk_token = unk_token
 
+
     def collate_fn(self, batch):
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
         history = [item[3] for item in batch]
-        visual_context = [item[4] for item in batch]
+        focus = [item[4] for item in batch]
         actions = [item[5] for item in batch]
         attributes = [item[6] for item in batch]
         responses_pool = [item[7] for item in batch]
@@ -57,7 +58,7 @@ class Collate():
                     curr_seq.append(word_id)
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
-        pdb.set_trace()
+
         # convert response candidates to word ids
         resp_ids = []
         for resps in responses_pool:
@@ -92,33 +93,20 @@ class Collate():
                 curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
             attr_ids.append(curr_attributes)
 
-        # item to id for the visual context
-        assert len(actions) == 1, 'Multiple actions for a single batch'
-        assert len(visual_context) == 1, 'Multiple visual contexts for a single batch'
-        visual_ids = []
-        if actions[0] == self.ACT2STR['searchmemory']:
-            assert len(visual_context[0]['memory']) != 0, 'SearchMemory action and empty memory list'
-            visual_ids = [mem_id for mem_id in visual_context[0]['memory']]
-        elif actions[0] == self.ACT2STR['searchdatabase']:
-            visual_ids = [mem_id for mem_id in visual_context[0]['db']]
-        else:
-            visual_ids.append(visual_context[0]['focus'])
-        if not isinstance(visual_ids, list,):
-            pdb.set_trace()
-
         assert len(utterance_seq_ids) == 1, 'Only unitary batch sizes allowed'
         assert len(utterance_seq_ids) == len(dial_ids), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(turns), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(history_seq_ids), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(resp_ids), 'Batch sizes do not match'
         assert len(utterance_seq_ids) == len(attr_ids), 'Batch sizes do not match'
+        assert len(utterance_seq_ids) == len(focus)
 
         batch_dict = {}
         batch_dict['utterances'] = utterance_seq_ids
         batch_dict['history'] = history_seq_ids
         batch_dict['actions'] = act_ids
         batch_dict['attributes'] = attr_ids
-        batch_dict['visual_context'] = visual_ids
+        batch_dict['focus'] = focus[0] #only one focus per turn
 
         return dial_ids, turns, batch_dict, resp_ids
 
@@ -126,7 +114,6 @@ class Collate():
 def save_data_on_file(iterator, save_path):
 
     metadata_ids = {}
-    #here save metadata
 
     dial_id_list = []
     turn_list = []
@@ -134,7 +121,7 @@ def save_data_on_file(iterator, save_path):
     history_list = []
     actions_list = []
     attributes_list = []
-    visual_context_list = []
+    focus_list = []
     candidate_list = []
     for dial_ids, turns, batch, candidates_pool in iterator:
         assert len(dial_ids) == 1, 'Only unitary batches are allowed during preprocessing'
@@ -144,7 +131,7 @@ def save_data_on_file(iterator, save_path):
         history_list.append(batch['history'][0])
         actions_list.append(batch['actions'][0])
         attributes_list.append(batch['attributes'][0])
-        visual_context_list.append(batch['visual_context'])
+        focus_list.append(batch['focus'])
         candidate_list.append(candidates_pool[0])
     
     torch.save(
@@ -155,7 +142,7 @@ def save_data_on_file(iterator, save_path):
             'histories': history_list,
             'actions': actions_list,
             'attributes': attributes_list,
-            'visual_contexts': visual_context_list,
+            'focus': focus_list,
             'candidates': candidate_list 
         },
         save_path
@@ -182,14 +169,16 @@ def metadata2ids(processed_metadata, word2id, unk_token):
                         unknown_words.add(word)
                     curr_value.append(word2id[word] if word in word2id else unk_token)
                 curr_values.append(torch.tensor(curr_value))
-            if not len(curr_values):
-                curr_values.append(torch.tensor(word2id['none'], dtype=torch.long)) #insert none for field for which we do not have values
+            if len(curr_values):
+                curr_values = torch.cat(curr_values)
+            else:
+                #insert none for field for which we do not have values
+                curr_values = torch.tensor([word2id['none']], dtype=torch.long)
         
             metadata_ids[int(item_id)].append((torch.tensor(curr_field, dtype=torch.long), curr_values))
 
     print('UNKNOWN METADATA WORDS: {}'.format(len(unknown_words)))
     return metadata_ids
-
 
 
 def preprocess(train_dataset, dev_dataset, test_dataset, args):
@@ -223,6 +212,7 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     params = {'batch_size': 1,
             'shuffle': False,
             'num_workers': 0}
+    assert params['batch_size'] == 1 and not params['shuffle'], 'Keep batch size to 1 and shuffle to False to avoid problems during training'
     trainloader = DataLoader(train_dataset, **params, collate_fn=collate.collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate.collate_fn)
     testloader = DataLoader(test_dataset, **params, collate_fn=collate.collate_fn)
