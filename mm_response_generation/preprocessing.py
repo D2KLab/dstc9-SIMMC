@@ -21,6 +21,7 @@ from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 class Collate():
 
     ACT2STR = SIMMCDatasetForResponseGeneration._ACT2STR
+    UNK_WORDS = set()
 
     def __init__(self, word2id, unk_token):
         self.word2id = word2id
@@ -42,6 +43,8 @@ class Collate():
             curr_seq = []
             for word in item[2].split():
                 word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                if word not in self.word2id:
+                    self.UNK_WORDS.add(word)
                 curr_seq.append(word_id)
             utterance_seq_ids.append(curr_seq)
 
@@ -55,6 +58,8 @@ class Collate():
                 curr_seq = []
                 for word in concat_sentences.split():
                     word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    if word not in self.word2id:
+                        self.UNK_WORDS.add(word)
                     curr_seq.append(word_id)
                 curr_turn_ids.append(torch.tensor(curr_seq))
             history_seq_ids.append(curr_turn_ids)
@@ -67,6 +72,8 @@ class Collate():
                 curr_seq = []
                 for word in resp.split():
                     word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    if word not in self.word2id:
+                        self.UNK_WORDS.add(word)
                     curr_seq.append(word_id)
                 curr_candidate.append(torch.tensor(curr_seq, dtype=torch.long))
             resp_ids.append(curr_candidate)
@@ -79,6 +86,8 @@ class Collate():
             act_tokens = act.split() if 'search' not in act else ['search']
             for word in act_tokens:
                 word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                if word not in self.word2id:
+                    self.UNK_WORDS.add(word)
                 curr_seq.append(word_id)
             act_ids.append(torch.tensor(curr_seq, dtype=torch.long))
         
@@ -89,6 +98,8 @@ class Collate():
                 curr_seq = []
                 for word in attr.split():
                     word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
+                    if word not in self.word2id:
+                        self.UNK_WORDS.add(word)
                     curr_seq.append(word_id)
                 curr_attributes.append(torch.tensor(curr_seq, dtype=torch.long))
             attr_ids.append(curr_attributes)
@@ -222,6 +233,8 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     save_data_on_file(iterator=trainloader, save_path=os.path.join(args.train_folder, 'response_retrieval_data.dat'))
     save_data_on_file(iterator=devloader, save_path=os.path.join(args.dev_folder, 'response_retrieval_data.dat'))
     save_data_on_file(iterator=testloader, save_path=os.path.join(args.test_folder, 'response_retrieval_data.dat'))
+
+    print('UNKNOWN DATASET WORDS: {}'.format(len(collate.UNK_WORDS)))
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60

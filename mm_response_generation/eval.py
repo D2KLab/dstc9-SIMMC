@@ -11,7 +11,7 @@ sys.path.append('.')
 
 from config import TrainConfig
 from dataset import FastDataset
-from models import BlindStatelessLSTM
+from models import BlindStatelessLSTM, MMStatefulLSTM
 from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 
 
@@ -30,7 +30,7 @@ from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 """
 
 
-def instantiate_model(args, word2id):
+def instantiate_model(args, word2id, device):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
@@ -39,21 +39,14 @@ def instantiate_model(args, word2id):
                                 seed=TrainConfig._SEED,
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
-    elif args.model == 'blindstateful':
-        return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
-                                word2id=word2id,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED,
-                                OOV_corrections=False)
     elif args.model == 'mmstateful':
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                item_embeddings_path=args.metadata_embeddings,
                                 pad_token=TrainConfig._PAD_TOKEN,
                                 unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
-                                OOV_corrections=False)
+                                OOV_corrections=False,
+                                device=device)
     else:
         raise Exception('Model not present!')
 
@@ -64,6 +57,30 @@ def create_eval_dict(dataset):
     for dial_id, num_turns in dataset.id2turns.items():
         eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': []}
     return eval_dict
+
+
+def remove_dataparallel(load_checkpoint_path):
+    # original saved file with DataParallel
+    state_dict = torch.load(load_checkpoint_path)
+    # create new OrderedDict that does not contain `module.`
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        name = k[7:] # remove `module.`
+        new_state_dict[name] = v
+    # load params
+    return new_state_dict
+
+
+def move_batch_to_device(batch, device):
+    batch['utterances'] = batch['utterances'].to(device)
+    for h_idx in range(len(batch['history'])):
+        if len(batch['history'][h_idx]):
+            batch['history'][h_idx] = batch['history'][h_idx].to(device)
+    for i_idx in range(len(batch['focus_items'])):
+        batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
+        batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
+    batch['seq_lengths'] = batch['seq_lengths'].to(device)
 
 
 def eval(model, test_dataset, args, save_folder, device):
@@ -85,9 +102,10 @@ def eval(model, test_dataset, args, save_folder, device):
             dial_id = dial_ids[0]
             turn = turns[0]
 
-            batch['utterances'] = batch['utterances'].to(device)
+            move_batch_to_device(batch, device)
+            candidates_pool = candidates_pool.to(device)
 
-            _, matching_scores = model(**batch, candidates_pool=candidates_pool, device=device)
+            matching_scores = model(**batch, candidates_pool=candidates_pool)
 
             #get retrieved response index in the pool
             #retrieved_response_idx = torch.argmax(matching_scores, dim=-1)
@@ -163,8 +181,9 @@ if __name__ == '__main__':
     word2id = torch.load(args.vocabulary)
 
     model = instantiate_model(args, 
-                            word2id=word2id)
-    model.load_state_dict(torch.load(args.model_path))
+                            word2id=word2id,
+                            device=device)
+    model.load_state_dict(remove_dataparallel(args.model_path))
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))

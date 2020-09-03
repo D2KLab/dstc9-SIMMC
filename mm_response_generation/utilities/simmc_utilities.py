@@ -21,7 +21,7 @@ class Logger(object):
         pass  
 
 
-def plotting_loss(save_path, x_values, x_label, y_label, plot_title, functions, legend=True):
+def plotting_loss(x_values, x_label, y_label, plot_title, functions, save_path=None, legend=True):
     """plot functions
 
     Args:
@@ -43,8 +43,11 @@ def plotting_loss(save_path, x_values, x_label, y_label, plot_title, functions, 
     plt.ylabel(y_label)
     if legend:
         plt.legend(loc='best')
-    plt.savefig(save_path)
-    plt.clf()
+    if save_path is not None:
+        plt.savefig(save_path)
+        plt.clf()
+    else:
+        plt.show()
 
 
 def print_annotation_dialogue(dialogue, candidates):

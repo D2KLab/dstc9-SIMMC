@@ -6,6 +6,8 @@ import torch
 from torch.utils.data import Dataset
 
 
+#_DATA_PERC = 50
+
 class FastDataset(Dataset):
     """Dataset with preprocessed data for response generation subtask
     
@@ -55,6 +57,8 @@ class FastDataset(Dataset):
 
 
     def __len__(self):
+        #frac = int(len(self.data['utterances']) * (_DATA_PERC/100))
+        #return frac
         return len(self.data['utterances'])
 
 

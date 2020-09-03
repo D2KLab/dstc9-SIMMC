@@ -1,10 +1,10 @@
 #/usr/bin/bash
 
-export MODEL=blindstateless
+#export MODEL=blindstateless
 #export MODEL=blindstateful
-#export MODEL=mmstateful
+export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-08-27T11:12:16
+export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-09-02T00:12:24
 
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/vocabulary.pkl

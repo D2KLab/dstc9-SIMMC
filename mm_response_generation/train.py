@@ -18,7 +18,7 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import Logger, plotting_loss, DataParallelV2
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3,5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3,4,5"  # specify which GPU(s) to be used
 
 
 def instantiate_model(args, word2id, device):
@@ -49,12 +49,12 @@ def instantiate_model(args, word2id, device):
         raise Exception('Model not present!')
 
 
-def plotting(epochs, losses_trend, checkpoint_dir):
+def plotting(epochs, losses_trend, checkpoint_dir=None):
     epoch_list = np.arange(1, epochs+1)
     losses = [(losses_trend['train'], 'blue', 'train'), 
                 (losses_trend['dev'], 'red', 'validation')]
 
-    loss_path = os.path.join(checkpoint_dir, 'global_loss_plot')
+    loss_path = os.path.join(checkpoint_dir, 'global_loss_plot') if checkpoint_dir is not None else None
     plotting_loss(x_values=epoch_list, save_path=loss_path, functions=losses, plot_title='Global loss trend', x_label='epochs', y_label='loss')
 
 
@@ -87,11 +87,13 @@ def forward_step(model, batch, candidates_pool, response_criterion, device):
 def train(train_dataset, dev_dataset, args, device):
 
     # prepare checkpoint folder
-    curr_date = datetime.datetime.now().isoformat().split('.')[0]
-    checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
-    os.makedirs(checkpoint_dir, exist_ok=True) #todo uncomment before first training
-    # prepare logger to redirect both on file and stdout
-    sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log')) #todo uncomment before training
+    if args.checkpoints:
+        curr_date = datetime.datetime.now().isoformat().split('.')[0]
+        checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        # prepare logger to redirect both on file and stdout
+        sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log'))
+        sys.stderr = Logger(os.path.join(checkpoint_dir, 'err.log'))
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
     print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
@@ -104,8 +106,8 @@ def train(train_dataset, dev_dataset, args, device):
     with open(args.vocabulary, 'rb') as fp:
         vocabulary = np.load(fp, allow_pickle=True)
         vocabulary = dict(vocabulary.item())
-
-    torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl')) #todo uncomment before first training
+    if args.checkpoints:
+        torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
     print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
 
     # prepare model
@@ -121,7 +123,7 @@ def train(train_dataset, dev_dataset, args, device):
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
             'shuffle': True, #todo set to True
-            'num_workers': 2,
+            'num_workers': 0,
             'pin_memory': True} #'pin_memory': True
     collate_fn = model.collate_fn if torch.cuda.device_count() <= 1 else model.module.collate_fn
     trainloader = DataLoader(train_dataset, **params, collate_fn=collate_fn)
@@ -132,7 +134,8 @@ def train(train_dataset, dev_dataset, args, device):
     #response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
-    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
+    #todo uncomment
+    #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': [], 
@@ -143,6 +146,7 @@ def train(train_dataset, dev_dataset, args, device):
     best_loss = math.inf
     start_t = time.time()
     for epoch in range(args.epochs):
+        ep_start = time.time()
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
@@ -177,20 +181,26 @@ def train(train_dataset, dev_dataset, args, device):
                                             response_criterion=response_criterion,
                                             device=device)
                 curr_epoch_losses.append(response_loss.item())
-
         losses_trend['dev'].append(np.mean(curr_epoch_losses))
         # save checkpoint if best model
         if losses_trend['dev'][-1] < best_loss:
             best_loss = losses_trend['dev'][-1]
-            torch.save(model.cpu().state_dict(), os.path.join(checkpoint_dir, 'state_dict.pt'))
+            if args.checkpoints:
+                torch.save(model.cpu().state_dict(), os.path.join(checkpoint_dir, 'state_dict.pt'))
             model.to(device)
-        
-        print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f} ; (lr={})'.format(epoch+1, 
+        ep_end = time.time()
+        ep_h_count = (ep_end-ep_start) /60 /60
+        ep_m_count = ((ep_end-ep_start)/60) % 60
+        ep_s_count = (ep_end-ep_start) % 60
+        time_str = '{}h:{}m:{}s'.format(round(ep_h_count), round(ep_m_count), round(ep_s_count))
+        print('EPOCH #{} :: train_loss = {:.4f} ; dev_loss = {:.4f} ; (lr={}); --time: {}'.format(epoch+1, 
                                                                                     losses_trend['train'][-1], 
                                                                                     losses_trend['dev'][-1],
-                                                                                    optimizer.param_groups[0]['lr']))
+                                                                                    optimizer.param_groups[0]['lr'],
+                                                                                    time_str))
         scheduler1.step()
-        scheduler2.step(losses_trend['dev'][-1])
+        #TODO uncomment
+        #scheduler2.step(losses_trend['dev'][-1])
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60
@@ -199,6 +209,8 @@ def train(train_dataset, dev_dataset, args, device):
 
     print('training time: {}h:{}m:{}s'.format(round(h_count), round(m_count), round(s_count)))
 
+    if not args.checkpoints:
+        checkpoint_dir = None
     plotting(epochs=args.epochs, losses_trend=losses_trend, checkpoint_dir=checkpoint_dir)
 
 
@@ -250,6 +262,12 @@ if __name__ == '__main__':
         type=int,
         help="Number of epochs")
     parser.add_argument(
+        "--checkpoints",
+        action='store_true',
+        default=False,
+        required=False,
+        help="Flag to enable checkpoint saving for best model, logs and plots")
+    parser.add_argument(
         "--cuda",
         action='store_true',
         default=False,
@@ -257,9 +275,12 @@ if __name__ == '__main__':
         help="flag to use cuda")
 
     args = parser.parse_args()
+    if not args.checkpoints:
+        print('************ NO CHECKPOINT SAVE !!! ************')
+
     train_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
     dev_dataset = FastDataset(dat_path=args.eval, metadata_ids_path= args.metadata_ids, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING) #? sampling on eval
-
+    print('TRAIN DATA LEN: {}'.format(len(train_dataset)))
     device = torch.device('cuda:0'.format(args.cuda) if torch.cuda.is_available() and args.cuda else 'cpu')
 
     train(train_dataset, dev_dataset, args, device)

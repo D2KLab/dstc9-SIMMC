@@ -196,22 +196,24 @@ class SIMMCDataset(Dataset):
                 user_tokens = tokenizer.tokenize(dial_turn['transcript'])
                 for tok in user_tokens:
                     cleaned_tok = self.token_clean(tok)
-                    self.vocabulary.add(cleaned_tok)
+                    self.add_str_to_voc(cleaned_tok)
                     processed_user += cleaned_tok + ' '
                 agent_tokens = tokenizer.tokenize(dial_turn['system_transcript'])
                 for tok in agent_tokens:
                     cleaned_tok = self.token_clean(tok)
-                    self.vocabulary.add(cleaned_tok)
+                    self.add_str_to_voc(cleaned_tok)
                     processed_agent += cleaned_tok + ' '
                 self.processed_turns[dial_id][dial_turn['turn_idx']]['transcript'] = processed_user[:-1] #remove final space
                 self.processed_turns[dial_id][dial_turn['turn_idx']]['system_transcript'] = processed_agent[:-1] #remove final space
 
 
     def token_clean(self, token):
-        if token.isnumeric():
-            return '0'
-        else:
+
+        if '$' not in token and '.' not in token and not token.isnumeric():
             return token.lower()
+        else:
+            #return white space separated digits (e.g., '187' -> '1 8 7')
+            return ' '.join(token)
 
 
     def get_vocabulary(self):
@@ -246,6 +248,11 @@ class SIMMCDataset(Dataset):
         return self.metadata[obj_id]
 
 
+    def add_str_to_voc(self, wstring):
+        for word in wstring.split():
+            self.vocabulary.add(word)
+
+
     def __str__(self):
         return '{}_{}_{}_v{}'.format(self.domain, self.split, self.year, self.version)
 
@@ -267,6 +274,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                 'skirtlength': 'skirt length'}
     _ACT2STR = {'none': 'none', 'searchdatabase': 'search database', 'searchmemory': 'search memory', 'specifyinfo': 'specify info', 'addtocart': 'add to cart'}
 
+
     def __init__(self, data_path, metadata_path, actions_path, candidates_path, verbose=True):
         super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
 
@@ -282,12 +290,19 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
             tokens = tokenizer.tokenize(candidate)
             for tok in tokens:
                 cleaned_tok = self.token_clean(tok)
-                self.vocabulary.add(cleaned_tok)
+                self.add_str_to_voc(cleaned_tok)
                 curr_candidate += cleaned_tok + ' '
             self.processed_candidates.append(curr_candidate[:-1]) #avoid last space
 
         self.processed_metadata = {}
         self.process_metadata_items()
+
+        #add attributes and actions to vocabulary
+        for attr in self._ATTRS:
+            corrected_attr = self._ATTR2STR[attr.lower()] if attr.lower() in self._ATTR2STR else attr.lower()
+            self.add_str_to_voc(corrected_attr)
+        for _, act in self._ACT2STR.items():
+            self.add_str_to_voc(act)
 
 
     def process_metadata_items(self):
@@ -318,7 +333,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                     """
                     cleaned_tok = self.token_clean(tok)
                     cleaned_tok = self._ATTR2STR[cleaned_tok] if cleaned_tok in self._ATTR2STR else cleaned_tok
-                    self.vocabulary.add(cleaned_tok)
+                    self.add_str_to_voc(cleaned_tok)
                     curr_field += cleaned_tok + ' '
                 curr_field = curr_field[:-1]
                 
@@ -331,14 +346,14 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                         value_tokens = re.split('_|\s', val)
                         for tok in value_tokens:
                             cleaned_tok = self.token_clean(tok)
-                            self.vocabulary.add(cleaned_tok)
+                            self.add_str_to_voc(cleaned_tok)
                             curr_val += cleaned_tok + ' '
                         proc_values.append(curr_val[:-1])
                 else:
-                    value_tokens = re.split('_|\s', val)
+                    value_tokens = re.split('_|\s', values)
                     for tok in value_tokens:
                         cleaned_tok = self.token_clean(tok)
-                        self.vocabulary.add(cleaned_tok)
+                        self.add_str_to_voc(cleaned_tok)
                         curr_val += cleaned_tok + ' '
                     proc_values.append(curr_val[:-1])
 
@@ -377,20 +392,6 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
     def __str__(self):
         return '{}_subtask({})'.format(super().__str__(), self.task)
-
-
-    def get_vocabulary(self):
-        #vocabulary already contains words from item metadata
-        voc = super().get_vocabulary()
-        #add also the vocabulary for actions and attributes
-        for _, attr in self._ATTR2STR.items():
-            for word in attr.split():
-                voc.add(word)
-
-        for _, act in self._ACT2STR.items():
-            for word in act.split():
-                voc.add(word)
-        return voc
 
 
     def load_candidates(self, candidates_path):

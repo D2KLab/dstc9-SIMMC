@@ -18,6 +18,7 @@ class MMStatefulLSTM(nn.Module):
         nn ([type]): [description]
     """
     _HIDDEN_SIZE = 300
+    _DROPOUT_P = 0
 
     def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, seed, OOV_corrections, device='cpu'):
         torch.manual_seed(seed)
@@ -25,6 +26,7 @@ class MMStatefulLSTM(nn.Module):
 
         self.device = device
         self.memory_hidden_size = self._HIDDEN_SIZE
+        self.dropout_prob = self._DROPOUT_P
         n_encoders, n_heads = 1, 2
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
@@ -33,9 +35,14 @@ class MMStatefulLSTM(nn.Module):
                                                         pad_token=pad_token, 
                                                         unk_token=unk_token)
         self.emb_dim = self.word_embeddings_layer.embedding_size
-        self.sentence_encoder = SentenceEncoder(emb_dim=self.emb_dim, hidden_size=self.memory_hidden_size, bidirectional=True)
+        self.sentence_encoder = SentenceEncoder(emb_dim=self.emb_dim, 
+                                                hidden_size=self.memory_hidden_size, 
+                                                bidirectional=True,
+                                                dropout_prob=self.dropout_prob)
 
-        self.memory_net = MemoryNet(emb_dim=self.emb_dim, memory_hidden_size=self.memory_hidden_size)
+        self.memory_net = MemoryNet(emb_dim=self.emb_dim, 
+                                    memory_hidden_size=self.memory_hidden_size, 
+                                    dropout_prob=self.dropout_prob)
 
         #for h heads: d_k == d_v == emb_dim/h
         self.triton_attention = Triton(emb_dim=self.emb_dim,
@@ -43,10 +50,11 @@ class MMStatefulLSTM(nn.Module):
                                         d_v=int(self.emb_dim/n_heads),
                                         d_f=int(self.emb_dim/2),
                                         n_heads=n_heads,
-                                        n_layers=n_encoders)
+                                        n_layers=n_encoders,
+                                        dropout_prob=self.dropout_prob)
 
         self.layerNorm = nn.LayerNorm(self.memory_hidden_size)
-        self.dropout = nn.Dropout(p=.1)
+        self.dropout = nn.Dropout(p=self.dropout_prob)
         self.out_layer = CandidateAttentiveOutput(in_features=self.memory_hidden_size, 
                                                 hidden_size=int(self.memory_hidden_size/2))
 
@@ -282,7 +290,7 @@ class CandidateAttentiveOutput(nn.Module):
 
 class SentenceEncoder(nn.Module):
 
-    def __init__(self, emb_dim, hidden_size, bidirectional=False):
+    def __init__(self, emb_dim, hidden_size, dropout_prob, bidirectional=False):
         super(SentenceEncoder, self).__init__()
 
         self.encoder = nn.LSTM(emb_dim,
@@ -291,7 +299,7 @@ class SentenceEncoder(nn.Module):
                             bidirectional=bidirectional)
         in_features = 2*hidden_size if bidirectional else hidden_size
         self.mlp = nn.Linear(in_features=in_features, out_features=hidden_size)
-        self.dropout = nn.Dropout(p=.1)
+        self.dropout = nn.Dropout(p=dropout_prob)
         self.layerNorm = nn.LayerNorm(hidden_size)
 
 
@@ -322,13 +330,13 @@ class SentenceEncoder(nn.Module):
 
 class MemoryNet(nn.Module):
 
-    def __init__(self, emb_dim, memory_hidden_size):
+    def __init__(self, emb_dim, memory_hidden_size, dropout_prob):
         super(MemoryNet, self).__init__()
 
         self.memory_hidden_size = memory_hidden_size
         self.query_encoder = nn.Linear(in_features=emb_dim, out_features=memory_hidden_size)
         self.memory_encoder = nn.Linear(in_features=emb_dim, out_features=memory_hidden_size)
-        self.dropout = nn.Dropout(p=.1)
+        self.dropout = nn.Dropout(p=dropout_prob)
         self.layerNorm = nn.LayerNorm(memory_hidden_size)
 
 
@@ -368,7 +376,7 @@ class MemoryNet(nn.Module):
 # Triton, trident? Not self attention! Triplet as input q, k, v belonging to different conceptual sets
 class Triton(nn.Module):
     
-    def __init__(self, emb_dim, d_k, d_v, d_f, n_heads, n_layers):
+    def __init__(self, emb_dim, d_k, d_v, d_f, n_heads, n_layers, dropout_prob):
         super(Triton, self).__init__()
 
         assert n_layers >= 1, 'Not acceptable number of layers: {}'.format(n_layers)
@@ -377,7 +385,7 @@ class Triton(nn.Module):
         #encoders = [TritonEncoder(emb_dim, d_k, d_v, d_f, n_heads) for _ in range(n_layers)]
         #self.encoders = nn.Sequential(*encoders)
         #todo change to allow multiple layers. Problem: sequential take only 1 input, so pack inputs to a tuple.
-        self.encoders = TritonEncoder(emb_dim, d_k, d_v, d_f, n_heads)
+        self.encoders = TritonEncoder(emb_dim, d_k, d_v, d_f, n_heads, dropout_prob)
 
 
     def forward(self, ut, kt, vt):
@@ -393,11 +401,11 @@ class Triton(nn.Module):
 class TritonEncoder(nn.Module):
 
 
-    def __init__(self, emb_dim, d_k, d_v, d_f, n_heads):
+    def __init__(self, emb_dim, d_k, d_v, d_f, n_heads, dropout_prob):
         super(TritonEncoder, self).__init__()
 
         self.multihead_attn = TritonMultiHeadCrossAttention(emb_dim, d_k, d_v, n_heads)
-        self.dropout = nn.Dropout(p=.1)
+        self.dropout = nn.Dropout(p=dropout_prob)
         self.layerNorm = nn.LayerNorm(emb_dim)
         self.fnn = nn.Sequential(nn.Linear(in_features=emb_dim, out_features=d_f),
                                 nn.ReLU(),

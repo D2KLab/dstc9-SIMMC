@@ -4,7 +4,7 @@
 #export MODEL=blindstateful
 export MODEL=mmstateful
 
-export DATASET_PATH=data/simmc_fashion/train/response_retrieval_data.dat
+export DATASET_PATH=data/simmc_fashion/train/response_retrieval_data.dat #todo modify to train
 export EVAL_PATH=data/simmc_fashion/dev/response_retrieval_data.dat
 export VOCABULARY=data/simmc_fashion/vocabulary.npy
 export GLOVE_PATH=embeddings/glove.6B.300d.txt
@@ -19,5 +19,6 @@ python mm_response_generation/train.py \
         --embeddings $GLOVE_PATH\
         --metadata_ids $METADATA_IDS_PATH\
         --batch_size 128\
-        --epochs 120\
+        --epochs 15\
+        --checkpoints\
         --cuda
