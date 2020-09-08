@@ -105,10 +105,11 @@ def eval(model, test_dataset, args, save_folder, device):
             move_batch_to_device(batch, device)
             candidates_pool = candidates_pool.to(device)
 
-            matching_scores = model(**batch, candidates_pool=candidates_pool)
+            matching_logits = model(**batch, candidates_pool=candidates_pool)
 
             #get retrieved response index in the pool
             #retrieved_response_idx = torch.argmax(matching_scores, dim=-1)
+            matching_scores = torch.nn.functional.softmax(matching_logits, dim=-1)
             eval_dict[dial_id]['candidate_scores'].append(matching_scores.squeeze(0).tolist())
 
     eval_list = []

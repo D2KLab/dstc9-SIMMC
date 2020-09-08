@@ -204,11 +204,13 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
     word2id = {}
     word2id[TrainConfig._PAD_TOKEN] = 0
-    word2id[TrainConfig._UNK_TOKEN] = 1
+    word2id[TrainConfig._START_TOKEN] = 1
+    word2id[TrainConfig._END_TOKEN] = 2
+    word2id[TrainConfig._UNK_TOKEN] = 3
     for idx, word in enumerate(vocabulary):
-        word2id[word] = idx+2
+        word2id[word] = idx+4
     np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
-    print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
+    print('VOCABULARY SIZE: {}'.format(len(word2id)))
 
     metadata_ids = metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=TrainConfig._UNK_TOKEN)
     torch.save(metadata_ids, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'metadata_ids.dat'))

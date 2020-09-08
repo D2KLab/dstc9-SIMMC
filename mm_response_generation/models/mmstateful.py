@@ -8,6 +8,7 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from .embednets import ItemEmbeddingNetwork, WordEmbeddingNetwork
+from .decoder import Decoder
 
 
 
@@ -19,48 +20,78 @@ class MMStatefulLSTM(nn.Module):
     """
     _HIDDEN_SIZE = 300
     _DROPOUT_P = 0
+    _FREEZE_EMBS = True
 
-    def __init__(self, word_embeddings_path, word2id, pad_token, unk_token, seed, OOV_corrections, device='cpu'):
+    def __init__(self, 
+                word_embeddings_path, 
+                word2id, 
+                pad_token,
+                start_token,
+                end_token,
+                unk_token, 
+                seed, 
+                mode='generation', 
+                device='cpu'):
+
+        assert mode in ['generation', 'retrieval'], 'Mode {} not available. Only \'generation\' and \'retrieval\''.format(mode)
         torch.manual_seed(seed)
         super(MMStatefulLSTM, self).__init__()
 
-        self.device = device
-        self.memory_hidden_size = self._HIDDEN_SIZE
-        self.dropout_prob = self._DROPOUT_P
-        n_encoders, n_heads = 1, 2
+        #self.device = device
+        self.mode = mode
+        self.start_id = word2id[start_token]
+        self.end_id = word2id[end_token]
+        n_encoders, n_enc_heads = 1, 4
+        n_decoders, n_dec_heads = 1, 1
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
                                                         word2id=word2id, 
                                                         pad_token=pad_token, 
-                                                        unk_token=unk_token)
+                                                        unk_token=unk_token,
+                                                        freeze=self._FREEZE_EMBS)
         self.emb_dim = self.word_embeddings_layer.embedding_size
         self.sentence_encoder = SentenceEncoder(emb_dim=self.emb_dim, 
-                                                hidden_size=self.memory_hidden_size, 
+                                                hidden_size=self._HIDDEN_SIZE, 
                                                 bidirectional=True,
-                                                dropout_prob=self.dropout_prob)
+                                                dropout_prob=self._DROPOUT_P)
 
-        self.memory_net = MemoryNet(emb_dim=self.emb_dim, 
-                                    memory_hidden_size=self.memory_hidden_size, 
-                                    dropout_prob=self.dropout_prob)
+        self.memory_net = MemoryNet(in_features=self._HIDDEN_SIZE, 
+                                    memory_hidden_size=self._HIDDEN_SIZE, 
+                                    dropout_prob=self._DROPOUT_P)
 
         #for h heads: d_k == d_v == emb_dim/h
-        self.triton_attention = Triton(emb_dim=self.emb_dim,
-                                        d_k=int(self.emb_dim/n_heads),
-                                        d_v=int(self.emb_dim/n_heads),
-                                        d_f=int(self.emb_dim/2),
-                                        n_heads=n_heads,
+        self.triton_attention = Triton(in_features=self._HIDDEN_SIZE,
+                                        d_k=self._HIDDEN_SIZE//n_enc_heads,
+                                        d_v=self._HIDDEN_SIZE//n_enc_heads,
+                                        d_f=self._HIDDEN_SIZE//2,
+                                        n_heads=n_enc_heads,
                                         n_layers=n_encoders,
-                                        dropout_prob=self.dropout_prob)
+                                        dropout_prob=self._DROPOUT_P)
 
-        self.layerNorm = nn.LayerNorm(self.memory_hidden_size)
-        self.dropout = nn.Dropout(p=self.dropout_prob)
-        self.out_layer = CandidateAttentiveOutput(in_features=self.memory_hidden_size, 
-                                                hidden_size=int(self.memory_hidden_size/2))
+        self.layerNorm = nn.LayerNorm(self._HIDDEN_SIZE)
+        self.dropout = nn.Dropout(p=self._DROPOUT_P)
+
+        if mode == 'retrieval':
+            self.out_layer = CandidateAttentiveOutput(in_features=self._HIDDEN_SIZE, 
+                                                    hidden_size=self._HIDDEN_SIZE//2)
+        else:
+            #for h heads: d_k == d_v == emb_dim/h
+            self.decoder = Decoder(input_size=self._HIDDEN_SIZE*2, 
+                                    embedding_net=self.word_embeddings_layer,
+                                    vocab_size=len(word2id),
+                                    n_layers=n_decoders,
+                                    n_heads=n_dec_heads,
+                                    d_k=2*self._HIDDEN_SIZE//n_dec_heads,
+                                    d_v=2*self._HIDDEN_SIZE//n_dec_heads,
+                                    d_f=2*self._HIDDEN_SIZE//2,
+                                    dropout_prob=self._DROPOUT_P,
+                                    start_id=self.start_id,
+                                    end_id=self.end_id)
 
 
-    def forward(self, utterances, history, actions, attributes, focus_items, 
-                candidates_pool, seq_lengths=None):
+    def forward(self, utterances, utterances_mask, history, actions, attributes, focus_items, 
+                candidates_pool, pools_padding_mask, seq_lengths=None):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
             for the field name and values is a list of values where each value is a tensor of word ids.
@@ -78,11 +109,13 @@ class MMStatefulLSTM(nn.Module):
             [type]: [description]
         """
         #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
+        assert utterances.shape[0] == utterances_mask.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == len(history), 'Inconsistent batch size'
         assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
         assert utterances.shape[0] == len(attributes), 'Inconsistent batch size'
         assert utterances.shape[0] == len(focus_items), 'Inconsistent batch size'
         assert utterances.shape[0] == candidates_pool.shape[0], 'Inconsistent batch size'
+        assert utterances.shape[0] == pools_padding_mask.shape[0], 'Inconsistent batch size'
         curr_device = utterances.device
         for idx, _ in enumerate(history):
             if len(history[idx]):
@@ -92,9 +125,9 @@ class MMStatefulLSTM(nn.Module):
             focus_items[idx][1] = focus_items[idx][1].to(curr_device)
 
         # todo use attributes to enforce the user utterance?
-        # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE]
+        # u_t shape [BATCH_SIZE x 2MEMORY_HIDDEN_SIZE], u_t_all shape [BATCH_SIZE x MAX_SEQ_LEN x 2MEMORY_HIDDEN_SIZE]
         embedded_utt_tensor = self.word_embeddings_layer(utterances)
-        u_t = self.sentence_encoder(embedded_utt_tensor, seq_lengths)
+        u_t, u_t_all = self.sentence_encoder(embedded_utt_tensor, seq_lengths)
 
         #h_t shape h_t[<sample_in_batch>].shape = [N_TURNSx300] or [] if no history
         embedded_hist_tensor = []
@@ -108,7 +141,7 @@ class MMStatefulLSTM(nn.Module):
             if not len(h_embedding):
                 h_t.append([])
             else:
-                h_t.append(self.sentence_encoder(h_embedding))
+                h_t.append(self.sentence_encoder(h_embedding)[0])
 
         #embedded_vis_tensor shape v_t[<sample_in_batch>][0/1].shape = [N_FIELDSx300]
         #v_t shape [<sample_in_batch>]x300
@@ -125,21 +158,32 @@ class MMStatefulLSTM(nn.Module):
                 h_t_tilde.append(self.memory_net(u_t[idx], h_t[idx]))
         h_t_tilde = torch.stack(h_t_tilde)
 
-        #encode candidates
-        candidates_emb = self.word_embeddings_layer(candidates_pool)
-        encoded_candidates = torch.stack([self.sentence_encoder(candidates) for candidates in candidates_emb])
-
-        #try the fusion with a fnn also
-        turns_repr = v_t_tilde + h_t_tilde
-        out = self.out_layer(turns_repr, encoded_candidates)
+        if self.mode == 'generation':
+            true_responses = candidates_pool if self.training else candidates_pool[:, 0]
+            #responses_emb = self.word_embeddings_layer(true_responses)
+            #true_responses shape BxSEQ_LEN ; responses_emb shape BxSEQ_LENxHIDDEN_SIZE
+            context = torch.cat((h_t_tilde, v_t_tilde), dim=-1)
+            self.decoder(input_batch=true_responses,
+                        encoder_out=u_t_all,
+                        context=context,
+                        enc_mask=utterances_mask,
+                        input_mask=pools_padding_mask)
+            #encode candidates
+            candidates_emb = self.word_embeddings_layer(candidates_pool)
+            encoded_candidates = torch.stack([self.sentence_encoder(candidates)[0] for candidates in candidates_emb])
+            #try the fusion with a fnn also
+            turns_repr = v_t_tilde + h_t_tilde
+            out = self.out_layer(turns_repr, encoded_candidates)
+        else:
+            raise Exception('Not implemented')
         return out
 
 
     def encode_v_context(self, focus_images):
         v_batch = []
-        for item in focus_images:
-            k_ht = self.sentence_encoder(self.word_embeddings_layer(item[0]))
-            v_ht = self.sentence_encoder(self.word_embeddings_layer(item[1]))
+        for keys, values in focus_images:
+            k_ht, _ = self.sentence_encoder(self.word_embeddings_layer(keys))
+            v_ht, _ = self.sentence_encoder(self.word_embeddings_layer(values))
             v_batch.append([k_ht, v_ht])
         return v_batch
 
@@ -180,8 +224,10 @@ class MMStatefulLSTM(nn.Module):
         # keep the correspondance with the target
         transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
         transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
+        transcripts_padding_mask = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
         for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
             transcripts_tensor[idx, :seqlen] = seq.clone().detach()
+            transcripts_padding_mask[idx, :seqlen] = 1
 
         #pad the history
         padded_history = []
@@ -196,11 +242,27 @@ class MMStatefulLSTM(nn.Module):
             padded_history.append(history_tensor)
 
         #pad the response candidates
-        batch_lens = torch.tensor([list(map(len, pool_sample)) for pool_sample in responses_pool], dtype=torch.long)
-        pools_tensor = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()), dtype=torch.long)
-        for batch_idx, (pool_lens, pool_sample) in enumerate(zip(batch_lens, responses_pool)):       
-            for pool_idx, (seq, seqlen) in enumerate(zip(pool_sample, pool_lens)):
-                pools_tensor[batch_idx, pool_idx, :seqlen] = seq.clone().detach()
+        # if training take only the true response
+        if self.training:
+            responses_pool = [pool_sample[0] for pool_sample in responses_pool]
+            batch_lens = torch.tensor(list(map(len, responses_pool)), dtype=torch.long)
+            pools_tensor = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
+            pools_padding_mask = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
+            pools_tensor[:, 0] = self.start_id
+            for batch_idx, (seq, seqlen) in enumerate(zip(responses_pool, batch_lens)):
+                pools_tensor[batch_idx, 1:seqlen+1] = seq.clone().detach()
+                pools_tensor[batch_idx, seqlen+1] = self.end_id
+                pools_padding_mask[batch_idx, :seqlen+2] = 1
+        else:
+            batch_lens = torch.tensor([list(map(len, pool_sample)) for pool_sample in responses_pool], dtype=torch.long)
+            pools_tensor = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()+2), dtype=torch.long)
+            pools_padding_mask = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()+2), dtype=torch.long)
+            pools_tensor[:, :, 0] = self.start_id
+            for batch_idx, (pool_lens, pool_sample) in enumerate(zip(batch_lens, responses_pool)):       
+                for pool_idx, (seq, seqlen) in enumerate(zip(pool_sample, pool_lens)):
+                    pools_tensor[batch_idx, pool_idx, 1:seqlen+1] = seq.clone().detach()
+                    pools_tensor[batch_idx, pool_idx, seqlen+1] = self.end_id
+                    pools_padding_mask[batch_idx, pool_idx, :seqlen+2] = 1
 
         #pad focus items
         padded_focus = []
@@ -226,7 +288,9 @@ class MMStatefulLSTM(nn.Module):
         # sort instances by sequence length in descending order and order targets to keep the correspondance
         transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
         transcripts_tensor = transcripts_tensor[perm_idx]
+        transcripts_padding_mask = transcripts_padding_mask[perm_idx]
         pools_tensor = pools_tensor[perm_idx]
+        pools_padding_mask = pools_padding_mask[perm_idx]
         sorted_dial_ids = []
         sorted_dial_turns = []
         sorted_dial_history = []
@@ -243,13 +307,14 @@ class MMStatefulLSTM(nn.Module):
 
         batch_dict = {}
         batch_dict['utterances'] = transcripts_tensor
+        batch_dict['utterances_mask'] = transcripts_padding_mask
         batch_dict['history'] = sorted_dial_history
         batch_dict['actions'] = sorted_actions
         batch_dict['attributes'] = sorted_attributes
         batch_dict['focus_items'] = sorted_focus_items
         batch_dict['seq_lengths'] = transcripts_lengths
 
-        return sorted_dial_ids, sorted_dial_turns, batch_dict, pools_tensor
+        return sorted_dial_ids, sorted_dial_turns, batch_dict, pools_tensor, pools_padding_mask
 
 
     def __str__(self):
@@ -313,29 +378,27 @@ class SentenceEncoder(nn.Module):
 
         #to call every forward if DataParallel is used. Otherwise only once inside __init__()
         self.encoder.flatten_parameters()
-        out_enc, (h_t, c_t) = self.encoder(input_seq)
-        bidirectional_h_t = torch.cat((h_t[0], h_t[-1]), dim=-1)
-        """unpack not needed. We don't use the output
+        sentences_outs, (h_t, c_t) = self.encoder(input_seq)
+        #concat right and left hidden states of the last layer
+        bidirectional_h_t = torch.cat((h_t[-2], h_t[-1]), dim=-1)
         if seq_lengths is not None:
             # unpack padded sequence
-            output, input_sizes = pad_packed_sequence(out1, batch_first=True)
-        """
-        
+            sentences_outs, input_sizes = pad_packed_sequence(sentences_outs, batch_first=True)
         mlp_out = self.mlp(bidirectional_h_t)
         out = self.layerNorm(self.dropout(mlp_out))
 
-        return out
+        return out, sentences_outs
 
 
 
 class MemoryNet(nn.Module):
 
-    def __init__(self, emb_dim, memory_hidden_size, dropout_prob):
+    def __init__(self, in_features, memory_hidden_size, dropout_prob):
         super(MemoryNet, self).__init__()
 
         self.memory_hidden_size = memory_hidden_size
-        self.query_encoder = nn.Linear(in_features=emb_dim, out_features=memory_hidden_size)
-        self.memory_encoder = nn.Linear(in_features=emb_dim, out_features=memory_hidden_size)
+        self.query_encoder = nn.Linear(in_features=in_features, out_features=memory_hidden_size)
+        self.memory_encoder = nn.Linear(in_features=in_features, out_features=memory_hidden_size)
         self.dropout = nn.Dropout(p=dropout_prob)
         self.layerNorm = nn.LayerNorm(memory_hidden_size)
 
@@ -376,7 +439,7 @@ class MemoryNet(nn.Module):
 # Triton, trident? Not self attention! Triplet as input q, k, v belonging to different conceptual sets
 class Triton(nn.Module):
     
-    def __init__(self, emb_dim, d_k, d_v, d_f, n_heads, n_layers, dropout_prob):
+    def __init__(self, in_features, d_k, d_v, d_f, n_heads, n_layers, dropout_prob):
         super(Triton, self).__init__()
 
         assert n_layers >= 1, 'Not acceptable number of layers: {}'.format(n_layers)
@@ -385,7 +448,7 @@ class Triton(nn.Module):
         #encoders = [TritonEncoder(emb_dim, d_k, d_v, d_f, n_heads) for _ in range(n_layers)]
         #self.encoders = nn.Sequential(*encoders)
         #todo change to allow multiple layers. Problem: sequential take only 1 input, so pack inputs to a tuple.
-        self.encoders = TritonEncoder(emb_dim, d_k, d_v, d_f, n_heads, dropout_prob)
+        self.encoders = TritonEncoder(in_features, d_k, d_v, d_f, n_heads, dropout_prob)
 
 
     def forward(self, ut, kt, vt):
@@ -401,15 +464,15 @@ class Triton(nn.Module):
 class TritonEncoder(nn.Module):
 
 
-    def __init__(self, emb_dim, d_k, d_v, d_f, n_heads, dropout_prob):
+    def __init__(self, in_features, d_k, d_v, d_f, n_heads, dropout_prob):
         super(TritonEncoder, self).__init__()
 
-        self.multihead_attn = TritonMultiHeadCrossAttention(emb_dim, d_k, d_v, n_heads)
+        self.multihead_attn = TritonMultiHeadCrossAttention(in_features, d_k, d_v, n_heads)
         self.dropout = nn.Dropout(p=dropout_prob)
-        self.layerNorm = nn.LayerNorm(emb_dim)
-        self.fnn = nn.Sequential(nn.Linear(in_features=emb_dim, out_features=d_f),
+        self.layerNorm = nn.LayerNorm(in_features)
+        self.fnn = nn.Sequential(nn.Linear(in_features=in_features, out_features=d_f),
                                 nn.ReLU(),
-                                nn.Linear(in_features=d_f, out_features=emb_dim))
+                                nn.Linear(in_features=d_f, out_features=in_features))
 
 
     def forward(self, u_t, k_t, v_t):
@@ -428,11 +491,11 @@ class TritonEncoder(nn.Module):
 
 class TritonMultiHeadCrossAttention(nn.Module):
     
-    def __init__(self, emb_dim, d_k, d_v, n_heads):
+    def __init__(self, in_features, d_k, d_v, n_heads):
         super(TritonMultiHeadCrossAttention, self).__init__()
 
         self.n_heads = n_heads
-        self.attn_heads = nn.ModuleList([TritonCrossAttentionHead(emb_dim, d_k, d_v) for _ in range(n_heads)])
+        self.attn_heads = nn.ModuleList([TritonCrossAttentionHead(in_features, d_k, d_v) for _ in range(n_heads)])
 
 
     def forward(self, u_t, k_t, v_t):
@@ -448,13 +511,14 @@ class TritonMultiHeadCrossAttention(nn.Module):
 
 class TritonCrossAttentionHead(nn.Module):
 
-    def __init__(self, emb_dim, d_k, d_v):
+    def __init__(self, in_features, d_k, d_v):
         super(TritonCrossAttentionHead, self).__init__()
         self.d_k = d_k
         self.d_v = d_v
-        self.Q = nn.Linear(emb_dim, d_k)
-        self.K = nn.Linear(emb_dim, d_k)
-        self.V = nn.Linear(emb_dim, d_v)
+        self.Q = nn.Linear(in_features, d_k)
+        self.K = nn.Linear(in_features, d_k)
+        self.V = nn.Linear(in_features, d_v)
+
 
     def forward(self, u_t, k_t, v_t):
         query = self.Q(u_t)

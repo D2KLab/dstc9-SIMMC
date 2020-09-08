@@ -18,10 +18,14 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import Logger, plotting_loss, DataParallelV2
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3,4,5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
 
 
 def instantiate_model(args, word2id, device):
+    special_tokens = {'pad_token': TrainConfig._PAD_TOKEN,
+                    'start_token': TrainConfig._START_TOKEN,
+                    'end_token': TrainConfig._END_TOKEN,
+                    'unk_token': TrainConfig._UNK_TOKEN}
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
@@ -40,11 +44,10 @@ def instantiate_model(args, word2id, device):
     elif args.model == 'mmstateful':
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
                                 seed=TrainConfig._SEED,
-                                OOV_corrections=False,
-                                device=device)
+                                mode=args.mode,
+                                device=device,
+                                **special_tokens)
     else:
         raise Exception('Model not present!')
 
@@ -60,6 +63,7 @@ def plotting(epochs, losses_trend, checkpoint_dir=None):
 
 def move_batch_to_device(batch, device):
     batch['utterances'] = batch['utterances'].to(device)
+    batch['utterances_mask'] = batch['utterances_mask'].to(device)
     for h_idx in range(len(batch['history'])):
         if len(batch['history'][h_idx]):
             batch['history'][h_idx] = batch['history'][h_idx].to(device)
@@ -69,13 +73,15 @@ def move_batch_to_device(batch, device):
     batch['seq_lengths'] = batch['seq_lengths'].to(device)
 
 
-def forward_step(model, batch, candidates_pool, response_criterion, device):
+def forward_step(model, batch, candidates_pool, pools_padding_mask, response_criterion, device):
     #todo cross entropy but for regression (not a classification problem, maximize the first score using softmax will minime also the others)
     move_batch_to_device(batch, device)
     candidates_pool = candidates_pool.to(device)
+    pools_padding_mask = pools_padding_mask.to(device)
 
     matching_logits = model(**batch,
-                            candidates_pool=candidates_pool)
+                            candidates_pool=candidates_pool,
+                            pools_padding_mask=pools_padding_mask)
 
     # the true response is always the first in the list of candidates
     matching_targets = torch.ones(batch['utterances'].shape[0], dtype=torch.long).to(device)
@@ -142,7 +148,7 @@ def train(train_dataset, dev_dataset, args, device):
                     'dev': []}
 
     candidates_pools_size = 100 if TrainConfig._DISTRACTORS_SAMPLING < 0 else TrainConfig._DISTRACTORS_SAMPLING + 1
-    print('candidate pool size: {}'.format(candidates_pools_size))
+    print('candidates\' pool size: {}'.format(candidates_pools_size))
     best_loss = math.inf
     start_t = time.time()
     for epoch in range(args.epochs):
@@ -150,12 +156,13 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(trainloader):
+        for curr_step, (dial_ids, turns, batch, candidates_pool, pools_padding_mask) in enumerate(trainloader):
             #step_start = time.time()
             #print(curr_step)
             response_loss = forward_step(model, 
                                         batch=batch,
                                         candidates_pool=candidates_pool,
+                                        pools_padding_mask=pools_padding_mask,
                                         response_criterion=response_criterion,
                                         device=device)
             #backward
@@ -174,10 +181,11 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = []
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, candidates_pool, pools_padding_mask) in enumerate(devloader):
                 response_loss = forward_step(model, 
                                             batch=batch,
                                             candidates_pool=candidates_pool,
+                                            pools_padding_mask=pools_padding_mask,
                                             response_criterion=response_criterion,
                                             device=device)
                 curr_epoch_losses.append(response_loss.item())
@@ -261,6 +269,12 @@ if __name__ == '__main__':
         required=True,
         type=int,
         help="Number of epochs")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=['generation', 'retrieval'],
+        required=True,
+        help="Response generation training mode (options: 'generation', 'retrieval')")
     parser.add_argument(
         "--checkpoints",
         action='store_true',
