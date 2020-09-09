@@ -42,7 +42,7 @@ class MMStatefulLSTM(nn.Module):
         self.start_id = word2id[start_token]
         self.end_id = word2id[end_token]
         n_encoders, n_enc_heads = 1, 4
-        n_decoders, n_dec_heads = 1, 1
+        n_decoders, n_dec_heads = 1, 4
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
@@ -77,14 +77,15 @@ class MMStatefulLSTM(nn.Module):
                                                     hidden_size=self._HIDDEN_SIZE//2)
         else:
             #for h heads: d_k == d_v == emb_dim/h
-            self.decoder = Decoder(input_size=self._HIDDEN_SIZE*2, 
-                                    embedding_net=self.word_embeddings_layer,
-                                    vocab_size=len(word2id),
+            self.decoder = Decoder(d_model=self.emb_dim,
+                                    d_enc=2*self._HIDDEN_SIZE,
+                                    d_k=self.emb_dim//n_dec_heads,
+                                    d_v=self.emb_dim//n_dec_heads,
+                                    d_f=self.emb_dim//2,
                                     n_layers=n_decoders,
                                     n_heads=n_dec_heads,
-                                    d_k=2*self._HIDDEN_SIZE//n_dec_heads,
-                                    d_v=2*self._HIDDEN_SIZE//n_dec_heads,
-                                    d_f=2*self._HIDDEN_SIZE//2,
+                                    embedding_net=self.word_embeddings_layer,
+                                    vocab_size=len(word2id),
                                     dropout_prob=self._DROPOUT_P,
                                     start_id=self.start_id,
                                     end_id=self.end_id)

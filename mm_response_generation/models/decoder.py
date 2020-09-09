@@ -9,16 +9,16 @@ import torch.nn.functional as F
 
 class Decoder(nn.Module):
 
-    _HIDDEN_SIZE = 300
     def __init__(self,
-                input_size,
-                embedding_net,
-                vocab_size,
-                n_layers,
-                n_heads,
+                d_model,
+                d_enc,
                 d_k,
                 d_v,
                 d_f,
+                n_layers,
+                n_heads,
+                embedding_net,
+                vocab_size,
                 dropout_prob,
                 start_id,
                 end_id):
@@ -29,22 +29,23 @@ class Decoder(nn.Module):
         self.vocab_size = vocab_size
         self.n_layers = n_layers
 
-        self.embedding_layer = TransformerEmbedding(embedding_net)
-        self.decoder_layers = [
-                    MultiAttentiveDecoder(input_size=input_size,
-                                        n_heads=n_heads,
+        self.embedding_layer = TransformerEmbedding(d_model, embedding_net)
+        self.decoder_layers = nn.ModuleList([
+                    MultiAttentiveDecoder(d_model=d_model,
+                                        d_enc=d_enc,
                                         d_k=d_k,
                                         d_v=d_v,
                                         d_f=d_f,
+                                        n_heads=n_heads,
                                         dropout_prob=dropout_prob) 
                     for _ in range(n_layers)
-                ]
+                ])
 
-        self.out_layer = nn.Sequential(nn.Linear(self._HIDDEN_SIZE, self._HIDDEN_SIZE//2),
+        self.out_layer = nn.Sequential(nn.Linear(d_model, d_model//2),
                                         nn.ReLU(),
-                                        nn.Linear(self._HIDDEN_SIZE//2, self._HIDDEN_SIZE//4),
+                                        nn.Linear(d_model//2, d_model//4),
                                         nn.ReLU(),
-                                        nn.Linear(self._HIDDEN_SIZE//4, self.vocab_size))
+                                        nn.Linear(d_model//4, self.vocab_size))
 
 
     def forward(self, input_batch, encoder_out, context, input_mask, enc_mask):
@@ -52,6 +53,10 @@ class Decoder(nn.Module):
         assert encoder_out.dim() == 3, 'Expected tensor with 2 dimensions but got {}'.format(encoder_out)
         assert input_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_mask)
         assert enc_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(enc_mask)
+        assert input_batch.shape[0] == encoder_out.shape[0], 'Inconsistent batch size'
+        assert input_batch.shape[0] == context.shape[0], 'Inconsistent batch size'
+        assert input_batch.shape[0] == input_mask.shape[0], 'Inconsistent batch size'
+        assert input_batch.shape[0] == enc_mask.shape[0], 'Inconsistent batch size'
         #input mask is the padding mask
         device = input_batch.device
         #self attention mask is a mask resulting from the combination of attention and padding masks
@@ -61,20 +66,18 @@ class Decoder(nn.Module):
         self_attn_mask = torch.tensor((np.triu(np.ones((input_batch.shape[0], input_batch.shape[1], input_batch.shape[1])), k=1) == 0), dtype=torch.long).to(device)
         self_attn_mask &= input_mask[:, :, None]
 
-        #encoder attention mask avoid the decoder to attend to pad tokens of the encoder output. It is a mask to apply column wise.
-        enc_attn_mask = enc_mask.transpose(0, 1)
-
-        """
-        # targets shape BxSEQ_LENxSEQ_LEN
-        targets = input_batch.unsqueeze(1).expand(-1, input_batch.shape[1],-1)
-        enc_out = encoder_out.unsqueeze(1).expand(-1, encoder_out.shape[1],-1)
-        #build the mask
-        self_attn_mask = self.build_compound_attn_mask(targets, input_mask)
-        enc_attn_mask = self.build_compound_attn_mask(enc_out, enc_mask)
-        """
+        #encoder attention mask avoid 2 things:
+        # the decoder to attend to encoder padding (to apply row wise)
+        # to use the decoder padding as query (to apply column wise)
+        #pdb.set_trace()
+        enc_attn_mask = torch.zeros((input_mask.shape[0], input_mask.shape[1], enc_mask.shape[1])).to(device)
+        enc_attn_mask[:, :] = enc_mask[:, None, :]
+        enc_attn_mask.transpose_(1, 2)
+        enc_attn_mask[:, :] *= input_mask[:, None, :]
+        enc_attn_mask.transpose_(1, 2)
 
         input_embs = self.embedding_layer(input_batch)
-        pdb.set_trace()
+        #pdb.set_trace()
         x = input_embs
         for idx in range(len(self.decoder_layers)):
             x = self.decoder_layers[idx](input_embs=x,  
@@ -109,8 +112,9 @@ class Decoder(nn.Module):
 
 class TransformerEmbedding(nn.Module):
 
-    def __init__(self, embedding_net):
+    def __init__(self, d_model, embedding_net):
         super(TransformerEmbedding, self).__init__()
+        assert embedding_net.embedding_dim == d_model, 'Embedding size of {} does not match d_model of {}'.format(embedding_net.embedding_dim, d_model)
         self.embedding_net = embedding_net
         self.d_model = self.embedding_net.embedding_dim
         self.positional_embeddings = self.init_positional(max_seq_len=150,
@@ -154,22 +158,22 @@ class TransformerEmbedding(nn.Module):
 
 class MultiAttentiveDecoder(nn.Module):
 
-    def __init__(self, input_size, n_heads, d_k, d_v, d_f, dropout_prob):
+    def __init__(self, d_model, d_enc, d_k, d_v, d_f, n_heads, dropout_prob):
         super(MultiAttentiveDecoder, self).__init__()
 
         #multi head self attention
         #encoder attention
         #fusion layer
-        self.multi_head_self = MultiHeadSelfAttention(input_size, n_heads, d_k=d_k, d_v=d_v)
-        self.multi_head_enc = MultiHeadSelfAttention(input_size, n_heads, d_k=d_k, d_v=d_v)
+        self.multi_head_self = MultiHeadSelfAttention(d_model=d_model, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
+        self.multi_head_enc = MultiHeadEncoderAttention(d_model=d_model, d_enc=d_enc, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
         self.fusion_module = nn.Sequential()
 
-        self.layerNorm = nn.LayerNorm(input_size)
+        self.layerNorm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(p=dropout_prob)
 
-        self.fnn = nn.Sequential(nn.Linear(in_features=input_size, out_features=d_f),
+        self.fnn = nn.Sequential(nn.Linear(in_features=d_model, out_features=d_f),
                                 nn.ReLU(),
-                                nn.Linear(in_features=d_f, out_features=input_size))
+                                nn.Linear(in_features=d_f, out_features=d_model))
 
 
 
@@ -195,11 +199,11 @@ class MultiAttentiveDecoder(nn.Module):
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, input_size, n_heads, d_k, d_v):
+    def __init__(self, d_model, d_k, d_v, n_heads, dropout_prob):
         super(MultiHeadSelfAttention, self).__init__()
 
         self.n_heads = n_heads
-        self.attn_heads = nn.ModuleList([SelfAttention(input_size, d_k, d_v) for _ in range(n_heads)])
+        self.attn_heads = nn.ModuleList([SelfAttention(d_model, d_k, d_v, dropout_prob) for _ in range(n_heads)])
 
 
     def forward(self, input_batch, input_mask):
@@ -212,11 +216,11 @@ class MultiHeadSelfAttention(nn.Module):
 
 
 class MultiHeadEncoderAttention(nn.Module):
-    def __init__(self, input_size, n_heads, d_k, d_v):
-        super(MultiHeadSelfAttention, self).__init__()
+    def __init__(self, d_model, d_enc, d_k, d_v, n_heads, dropout_prob):
+        super(MultiHeadEncoderAttention, self).__init__()
 
         self.n_heads = n_heads
-        self.attn_heads = nn.ModuleList([EncoderAttention(input_size, d_k, d_v) for _ in range(n_heads)])
+        self.attn_heads = nn.ModuleList([EncoderAttention(d_model, d_enc, d_k, d_v, dropout_prob) for _ in range(n_heads)])
 
 
     def __str__(self):
@@ -225,26 +229,31 @@ class MultiHeadEncoderAttention(nn.Module):
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, input_size, d_k, d_v):
+    def __init__(self, d_model, d_k, d_v, dropout_prob):
         super(SelfAttention, self).__init__()
 
         self.d_k = d_k
         self.d_v = d_v
-        self.Q = nn.Linear(input_size, d_k)
-        self.K = nn.Linear(input_size, d_k)
-        self.V = nn.Linear(input_size, d_v)
+        self.Q = nn.Linear(d_model, d_k)
+        self.K = nn.Linear(d_model, d_k)
+        self.V = nn.Linear(d_model, d_v)
+        self.dropout = nn.Dropout(p=dropout_prob)
 
 
-    def forward(self, target_batch, target_mask):
-        #todo add the mask before the softmax (diagonal matrix)
-        pdb.set_trace()
-        query = self.Q(target_batch)
-        key = self.K(target_batch)
-        value = self.V(target_batch)
+    def forward(self, input_batch, input_mask):
 
-        attn_logits = torch.matmul(query, torch.transpose(key, 0, 1))/ math.sqrt(self.d_k)
-        attn_scores = F.softmax(attn_logits, -1)
-        out = torch.sum(attn_scores[:, None] * value, dim=0)
+        query = self.Q(input_batch)
+        key = self.K(input_batch)
+        value = self.V(input_batch)
+
+        attn_logits = torch.matmul(query, torch.transpose(key, -2, -1))/ math.sqrt(self.d_k)
+        masked_attn_logits = attn_logits.masked_fill(input_mask==0, -np.inf)
+        attn_scores = F.softmax(masked_attn_logits, -1)
+        #pad attentions are row filled with 0's. The softmax will then output NaN for these row.
+        # the following line just replace NaN values with 0's
+        attn_scores[attn_scores != attn_scores] = 0
+        attn_scores = self.dropout(attn_scores)
+        out = torch.matmul(attn_scores, value)
         return out
 
 
@@ -254,24 +263,31 @@ class SelfAttention(nn.Module):
 
 
 class EncoderAttention(nn.Module):
-    def __init__(self, input_size, d_k, d_v):
+    def __init__(self, d_model, d_enc, d_k, d_v, dropout_prob):
         super(EncoderAttention, self).__init__()
 
         self.d_k = d_k
         self.d_v = d_v
-        self.Q = nn.Linear(input_size, d_k)
-        self.K = nn.Linear(input_size, d_k)
-        self.V = nn.Linear(input_size, d_v)
+        self.Q = nn.Linear(d_model, d_k)
+        self.K = nn.Linear(d_enc, d_k)
+        self.V = nn.Linear(d_enc, d_v)
+        self.dropout = nn.Dropout(p=dropout_prob)
 
 
-    def forward(self, target_batch, encoder_batch):
-        query = self.Q(target_batch)
-        key = self.K(encoder_batch)
-        value = self.V(encoder_batch)
+    def forward(self, decoder_batch, encoder_out, attn_mask):
+        
+        query = self.Q(decoder_batch)
+        key = self.K(encoder_out)
+        value = self.V(encoder_out)
 
-        attn_logits = torch.matmul(query, torch.transpose(key, 0, 1))/ math.sqrt(self.d_k)
-        attn_scores = F.softmax(attn_logits, -1)
-        out = torch.sum(attn_scores[:, None] * value, dim=0)
+        attn_logits = torch.matmul(query, torch.transpose(key, -2, -1))/ math.sqrt(self.d_k)
+        masked_attn_logits = attn_logits.masked_fill(attn_mask==0, -np.inf)
+        attn_scores = F.softmax(masked_attn_logits, -1)
+        #pad attentions are row filled with 0's. The softmax will then output NaN for these row.
+        # the following line just replace NaN values with 0's
+        attn_scores[attn_scores != attn_scores] = 0
+        attn_scores = self.dropout(attn_scores)
+        out = torch.matmul(attn_scores, value)
         return out
 
     def __str__(self):
