@@ -42,7 +42,7 @@ class MMStatefulLSTM(nn.Module):
         self.start_id = word2id[start_token]
         self.end_id = word2id[end_token]
         n_encoders, n_enc_heads = 1, 4
-        n_decoders, n_dec_heads = 1, 4
+        n_decoders, n_dec_heads = 4, 4
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
@@ -79,6 +79,7 @@ class MMStatefulLSTM(nn.Module):
             #for h heads: d_k == d_v == emb_dim/h
             self.decoder = Decoder(d_model=self.emb_dim,
                                     d_enc=2*self._HIDDEN_SIZE,
+                                    d_context=self._HIDDEN_SIZE,
                                     d_k=self.emb_dim//n_dec_heads,
                                     d_v=self.emb_dim//n_dec_heads,
                                     d_f=self.emb_dim//2,
@@ -163,21 +164,24 @@ class MMStatefulLSTM(nn.Module):
             true_responses = candidates_pool if self.training else candidates_pool[:, 0]
             #responses_emb = self.word_embeddings_layer(true_responses)
             #true_responses shape BxSEQ_LEN ; responses_emb shape BxSEQ_LENxHIDDEN_SIZE
-            context = torch.cat((h_t_tilde, v_t_tilde), dim=-1)
-            self.decoder(input_batch=true_responses,
-                        encoder_out=u_t_all,
-                        context=context,
-                        enc_mask=utterances_mask,
-                        input_mask=pools_padding_mask)
+            #context = torch.cat((h_t_tilde, v_t_tilde), dim=-1)
+            vocab_logits = self.decoder(input_batch=true_responses,
+                                        encoder_out=u_t_all,
+                                        history_context=h_t_tilde,
+                                        visual_context=v_t_tilde,
+                                        enc_mask=utterances_mask,
+                                        input_mask=pools_padding_mask)
+            return vocab_logits
+        else:
+            raise Exception('Not implemented')
+            """
             #encode candidates
             candidates_emb = self.word_embeddings_layer(candidates_pool)
             encoded_candidates = torch.stack([self.sentence_encoder(candidates)[0] for candidates in candidates_emb])
             #try the fusion with a fnn also
             turns_repr = v_t_tilde + h_t_tilde
             out = self.out_layer(turns_repr, encoded_candidates)
-        else:
-            raise Exception('Not implemented')
-        return out
+            """
 
 
     def encode_v_context(self, focus_images):
@@ -244,16 +248,16 @@ class MMStatefulLSTM(nn.Module):
 
         #pad the response candidates
         # if training take only the true response
-        if self.training:
-            responses_pool = [pool_sample[0] for pool_sample in responses_pool]
-            batch_lens = torch.tensor(list(map(len, responses_pool)), dtype=torch.long)
-            pools_tensor = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
-            pools_padding_mask = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
-            pools_tensor[:, 0] = self.start_id
-            for batch_idx, (seq, seqlen) in enumerate(zip(responses_pool, batch_lens)):
-                pools_tensor[batch_idx, 1:seqlen+1] = seq.clone().detach()
-                pools_tensor[batch_idx, seqlen+1] = self.end_id
-                pools_padding_mask[batch_idx, :seqlen+2] = 1
+        responses_pool = [pool_sample[0] for pool_sample in responses_pool]
+        batch_lens = torch.tensor(list(map(len, responses_pool)), dtype=torch.long)
+        pools_tensor = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
+        pools_padding_mask = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
+        pools_tensor[:, 0] = self.start_id
+        for batch_idx, (seq, seqlen) in enumerate(zip(responses_pool, batch_lens)):
+            pools_tensor[batch_idx, 1:seqlen+1] = seq.clone().detach()
+            pools_tensor[batch_idx, seqlen+1] = self.end_id
+            pools_padding_mask[batch_idx, :seqlen+2] = 1
+        """
         else:
             batch_lens = torch.tensor([list(map(len, pool_sample)) for pool_sample in responses_pool], dtype=torch.long)
             pools_tensor = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()+2), dtype=torch.long)
@@ -264,6 +268,7 @@ class MMStatefulLSTM(nn.Module):
                     pools_tensor[batch_idx, pool_idx, 1:seqlen+1] = seq.clone().detach()
                     pools_tensor[batch_idx, pool_idx, seqlen+1] = self.end_id
                     pools_padding_mask[batch_idx, pool_idx, :seqlen+2] = 1
+        """
 
         #pad focus items
         padded_focus = []

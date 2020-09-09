@@ -12,6 +12,7 @@ class Decoder(nn.Module):
     def __init__(self,
                 d_model,
                 d_enc,
+                d_context,
                 d_k,
                 d_v,
                 d_f,
@@ -33,6 +34,7 @@ class Decoder(nn.Module):
         self.decoder_layers = nn.ModuleList([
                     MultiAttentiveDecoder(d_model=d_model,
                                         d_enc=d_enc,
+                                        d_context=d_context,
                                         d_k=d_k,
                                         d_v=d_v,
                                         d_f=d_f,
@@ -48,13 +50,14 @@ class Decoder(nn.Module):
                                         nn.Linear(d_model//4, self.vocab_size))
 
 
-    def forward(self, input_batch, encoder_out, context, input_mask, enc_mask):
+    def forward(self, input_batch, encoder_out, history_context, visual_context, input_mask, enc_mask):
         assert input_batch.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_batch)
         assert encoder_out.dim() == 3, 'Expected tensor with 2 dimensions but got {}'.format(encoder_out)
         assert input_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_mask)
         assert enc_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(enc_mask)
         assert input_batch.shape[0] == encoder_out.shape[0], 'Inconsistent batch size'
-        assert input_batch.shape[0] == context.shape[0], 'Inconsistent batch size'
+        assert input_batch.shape[0] == history_context.shape[0], 'Inconsistent batch size'
+        assert input_batch.shape[0] == visual_context.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == input_mask.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == enc_mask.shape[0], 'Inconsistent batch size'
         #input mask is the padding mask
@@ -69,22 +72,22 @@ class Decoder(nn.Module):
         #encoder attention mask avoid 2 things:
         # the decoder to attend to encoder padding (to apply row wise)
         # to use the decoder padding as query (to apply column wise)
-        #pdb.set_trace()
         enc_attn_mask = torch.zeros((input_mask.shape[0], input_mask.shape[1], enc_mask.shape[1])).to(device)
         enc_attn_mask[:, :] = enc_mask[:, None, :]
         enc_attn_mask.transpose_(1, 2)
         enc_attn_mask[:, :] *= input_mask[:, None, :]
         enc_attn_mask.transpose_(1, 2)
 
-        input_embs = self.embedding_layer(input_batch)
-        #pdb.set_trace()
-        x = input_embs
+        x = self.embedding_layer(input_batch)
         for idx in range(len(self.decoder_layers)):
             x = self.decoder_layers[idx](input_embs=x,  
                                         enc_out=encoder_out,
+                                        history_context=history_context,
+                                        visual_context=visual_context,
                                         self_attn_mask=self_attn_mask,
                                         enc_attn_mask=enc_attn_mask)
-        pdb.set_trace()
+        vocab_logits = self.out_layer(x)
+        return vocab_logits
 
 
         """
@@ -158,7 +161,7 @@ class TransformerEmbedding(nn.Module):
 
 class MultiAttentiveDecoder(nn.Module):
 
-    def __init__(self, d_model, d_enc, d_k, d_v, d_f, n_heads, dropout_prob):
+    def __init__(self, d_model, d_enc, d_context, d_k, d_v, d_f, n_heads, dropout_prob):
         super(MultiAttentiveDecoder, self).__init__()
 
         #multi head self attention
@@ -166,35 +169,76 @@ class MultiAttentiveDecoder(nn.Module):
         #fusion layer
         self.multi_head_self = MultiHeadSelfAttention(d_model=d_model, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
         self.multi_head_enc = MultiHeadEncoderAttention(d_model=d_model, d_enc=d_enc, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
-        self.fusion_module = nn.Sequential()
+        self.fusion_module = FusionModule(d_model=d_model, d_context=d_context, dropout_prob=dropout_prob)
 
         self.layerNorm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(p=dropout_prob)
 
         self.fnn = nn.Sequential(nn.Linear(in_features=d_model, out_features=d_f),
                                 nn.ReLU(),
+                                nn.Dropout(p=dropout_prob),
                                 nn.Linear(in_features=d_f, out_features=d_model))
 
 
 
-    def forward(self, input_embs, enc_out, self_attn_mask, enc_attn_mask):
+    def forward(self, input_embs, enc_out, history_context, visual_context, self_attn_mask, enc_attn_mask):
 
-        self_out = self.multi_head_self(input_embs, self_attn_mask)
+        self_attn_out = self.multi_head_self(input_embs, self_attn_mask)
+        sub_out1 = self.layerNorm(input_embs + self.dropout(self_attn_out))
 
-        #flow:
-        # multi_head_self
-        # add, dropout and norm
-        # multi_head_enc
-        # add, dropout and norm
-        # fusion
-        # add, dropout and norm
-        # fnn
-        # add, dropout and norm
-        pass
+        enc_attn_out = self.multi_head_enc(sub_out1, enc_out, enc_attn_mask)
+        sub_out2 = self.layerNorm(sub_out1 + self.dropout(enc_attn_out))
+
+        fusion_out = self.fusion_module(sub_out2, history_context, visual_context)
+        sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
+
+        fnn_out = self.fnn(sub_out3)
+        sub_out4 = self.layerNorm(sub_out3 + self.dropout(fnn_out))
+        
+        return sub_out4
 
 
     def __str__(self):
         return super().__str__()
+
+
+
+class FusionModule(nn.Module):
+    def __init__(self, d_model, d_context, dropout_prob):
+        super(FusionModule, self).__init__()
+
+        self.d_context = d_context
+        self.d_model = d_model
+        d_cat = d_model+d_context
+        self.h_stream = nn.Sequential(nn.Linear(in_features=d_cat, out_features=d_cat//2),
+                                    nn.Linear(in_features=d_cat//2, out_features=d_cat//4),
+                                    nn.ReLU(),
+                                    nn.Dropout(p=dropout_prob),
+                                    nn.Linear(in_features=d_cat//4, out_features=d_cat//2),
+                                    nn.Linear(in_features=d_cat//2, out_features=d_cat))
+        self.v_stream = nn.Sequential(nn.Linear(in_features=d_cat, out_features=d_cat//2),
+                                    nn.Linear(in_features=d_cat//2, out_features=d_cat//4),
+                                    nn.ReLU(),
+                                    nn.Dropout(p=dropout_prob),
+                                    nn.Linear(in_features=d_cat//4, out_features=d_cat//2),
+                                    nn.Linear(in_features=d_cat//2, out_features=d_cat))
+        self.fusion_stream = nn.Sequential(nn.Linear(in_features=2*d_cat, out_features=d_cat),
+                                            nn.ReLU(),
+                                            nn.Dropout(p=dropout_prob),
+                                            nn.Linear(in_features=d_cat, out_features=d_model))
+                                            
+    def forward(self, decoder_batch, history_cntx, visual_cntx):
+        assert decoder_batch.dim() == 3, 'Expected 3 dimensions, got {}'.format(decoder_batch.dim())
+        assert history_cntx.shape[-1] == self.d_context, 'History dimension {} does not match d_context of {}'.format(history_cntx.shape[-1], self.d_context)
+        assert history_cntx.shape[-1] == visual_cntx.shape[-1], 'History and visual context sizes do not match'
+
+        h_in = torch.cat((decoder_batch, history_cntx.unsqueeze(1).expand(-1, decoder_batch.shape[1], -1)), dim=-1)
+        v_in = torch.cat((decoder_batch, visual_cntx.unsqueeze(1).expand(-1, decoder_batch.shape[1], -1)), dim=-1)
+        h_out = self.v_stream(h_in)
+        v_out = self.h_stream(v_in)
+        fuse_in = torch.cat((h_out, v_out), dim=-1)
+        fuse_out = self.fusion_stream(fuse_in)
+        return fuse_out
 
 
 
@@ -206,8 +250,8 @@ class MultiHeadSelfAttention(nn.Module):
         self.attn_heads = nn.ModuleList([SelfAttention(d_model, d_k, d_v, dropout_prob) for _ in range(n_heads)])
 
 
-    def forward(self, input_batch, input_mask):
-        outs = torch.stack([attn_head(input_batch, input_mask) for attn_head in self.attn_heads])
+    def forward(self, input_batch, attn_mask):
+        return torch.cat([attn_head(input_batch, attn_mask) for attn_head in self.attn_heads], dim=-1)
 
 
     def __str__(self):
@@ -221,6 +265,10 @@ class MultiHeadEncoderAttention(nn.Module):
 
         self.n_heads = n_heads
         self.attn_heads = nn.ModuleList([EncoderAttention(d_model, d_enc, d_k, d_v, dropout_prob) for _ in range(n_heads)])
+
+
+    def forward(self, decoder_batch, encoder_out, attn_mask):
+        return torch.cat([attn_head(decoder_batch, encoder_out, attn_mask) for attn_head in self.attn_heads], dim=-1)
 
 
     def __str__(self):
@@ -240,14 +288,14 @@ class SelfAttention(nn.Module):
         self.dropout = nn.Dropout(p=dropout_prob)
 
 
-    def forward(self, input_batch, input_mask):
+    def forward(self, input_batch, attn_mask):
 
         query = self.Q(input_batch)
         key = self.K(input_batch)
         value = self.V(input_batch)
 
         attn_logits = torch.matmul(query, torch.transpose(key, -2, -1))/ math.sqrt(self.d_k)
-        masked_attn_logits = attn_logits.masked_fill(input_mask==0, -np.inf)
+        masked_attn_logits = attn_logits.masked_fill(attn_mask==0, -np.inf)
         attn_scores = F.softmax(masked_attn_logits, -1)
         #pad attentions are row filled with 0's. The softmax will then output NaN for these row.
         # the following line just replace NaN values with 0's
@@ -283,7 +331,7 @@ class EncoderAttention(nn.Module):
         attn_logits = torch.matmul(query, torch.transpose(key, -2, -1))/ math.sqrt(self.d_k)
         masked_attn_logits = attn_logits.masked_fill(attn_mask==0, -np.inf)
         attn_scores = F.softmax(masked_attn_logits, -1)
-        #pad attentions are row filled with 0's. The softmax will then output NaN for these row.
+        #pad attentions are row filled with 0's. The softmax will then output NaN for these rows.
         # the following line just replace NaN values with 0's
         attn_scores[attn_scores != attn_scores] = 0
         attn_scores = self.dropout(attn_scores)

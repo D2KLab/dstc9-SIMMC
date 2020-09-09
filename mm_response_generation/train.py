@@ -18,7 +18,7 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import Logger, plotting_loss, DataParallelV2
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="5"  # specify which GPU(s) to be used
 
 
 def instantiate_model(args, word2id, device):
@@ -73,19 +73,29 @@ def move_batch_to_device(batch, device):
     batch['seq_lengths'] = batch['seq_lengths'].to(device)
 
 
-def forward_step(model, batch, candidates_pool, pools_padding_mask, response_criterion, device):
-    #todo cross entropy but for regression (not a classification problem, maximize the first score using softmax will minime also the others)
+def forward_step(model, batch, targets, targets_padding_mask, response_criterion, device):
     move_batch_to_device(batch, device)
-    candidates_pool = candidates_pool.to(device)
-    pools_padding_mask = pools_padding_mask.to(device)
+    targets = targets.to(device)
+    targets_padding_mask = targets_padding_mask.to(device)
 
-    matching_logits = model(**batch,
-                            candidates_pool=candidates_pool,
-                            pools_padding_mask=pools_padding_mask)
+    vocab_logits = model(**batch,
+                        candidates_pool=targets,
+                        pools_padding_mask=targets_padding_mask)
+    #todo problem here: CE expect each batch sample to belong to one class, here instead I have a sequence of results for each sample (3D tensor)
+    #targets are shifted right by one
+    shifted_targets = torch.cat((targets[:, 1:], torch.zeros((targets.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
+    pdb.set_trace()
+    response_loss = response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
+                                        shifted_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
+    #todo better to create input and target in the _collate_fn
+    #todo masking here no more possible (loss is a single value at this point)
+    response_loss = torch.masked_select(response_loss, targets_padding_mask)
 
+    """
     # the true response is always the first in the list of candidates
     matching_targets = torch.ones(batch['utterances'].shape[0], dtype=torch.long).to(device)
     response_loss = response_criterion(matching_logits, matching_targets)
+    """
 
     return response_loss
 
@@ -156,13 +166,13 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch, candidates_pool, pools_padding_mask) in enumerate(trainloader):
+        for curr_step, (dial_ids, turns, batch, targets, targets_padding_mask) in enumerate(trainloader):
             #step_start = time.time()
             #print(curr_step)
             response_loss = forward_step(model, 
                                         batch=batch,
-                                        candidates_pool=candidates_pool,
-                                        pools_padding_mask=pools_padding_mask,
+                                        targets=targets,
+                                        targets_padding_mask=targets_padding_mask,
                                         response_criterion=response_criterion,
                                         device=device)
             #backward
@@ -181,11 +191,11 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = []
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, candidates_pool, pools_padding_mask) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, targets, targets_padding_mas) in enumerate(devloader):
                 response_loss = forward_step(model, 
                                             batch=batch,
-                                            candidates_pool=candidates_pool,
-                                            pools_padding_mask=pools_padding_mask,
+                                            targets=targets,
+                                            targets_padding_mask=targets_padding_mask,
                                             response_criterion=response_criterion,
                                             device=device)
                 curr_epoch_losses.append(response_loss.item())
@@ -220,7 +230,6 @@ def train(train_dataset, dev_dataset, args, device):
     if not args.checkpoints:
         checkpoint_dir = None
     plotting(epochs=args.epochs, losses_trend=losses_trend, checkpoint_dir=checkpoint_dir)
-
 
 
 
