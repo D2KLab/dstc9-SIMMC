@@ -6,6 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+#the value with which to mask the attention
+# DO NOT USE '-INF' BECAUSE IT WILL GENERATE NaN AFTER SOFTMAX FOR PADDING ROWS (filled with all 0's)
+_MASKING_VALUE=-1e30
 
 class Decoder(nn.Module):
 
@@ -51,15 +54,23 @@ class Decoder(nn.Module):
 
 
     def forward(self, input_batch, encoder_out, history_context, visual_context, input_mask, enc_mask):
-        assert input_batch.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_batch)
-        assert encoder_out.dim() == 3, 'Expected tensor with 2 dimensions but got {}'.format(encoder_out)
-        assert input_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_mask)
-        assert enc_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(enc_mask)
+        assert input_batch.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_batch.dim())
+        assert encoder_out.dim() == 3, 'Expected tensor with 2 dimensions but got {}'.format(encoder_out.dim())
+        assert input_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_mask.dim())
+        assert enc_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(enc_mask.dim())
         assert input_batch.shape[0] == encoder_out.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == history_context.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == visual_context.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == input_mask.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == enc_mask.shape[0], 'Inconsistent batch size'
+        assert input_batch.shape == input_mask.shape, 'Inconsistent mask size, {} and {}'.format(input_batch.shape, input_mask.shape)
+        assert encoder_out.shape[:2] == enc_mask.shape, 'Inconsistent mask size, {} and {}'.format(encoder_out.shape[:2], enc_mask.shape)
+
+        assert input_batch.device == encoder_out.device, 'Different devices'
+        assert input_batch.device == history_context.device, 'Different devices'
+        assert input_batch.device == visual_context.device, 'Different devices'
+        assert input_batch.device == input_mask.device, 'Different devices'
+        assert input_batch.device == enc_mask.device, 'Different devices'
         #input mask is the padding mask
         device = input_batch.device
         #self attention mask is a mask resulting from the combination of attention and padding masks
@@ -74,9 +85,9 @@ class Decoder(nn.Module):
         # to use the decoder padding as query (to apply column wise)
         enc_attn_mask = torch.zeros((input_mask.shape[0], input_mask.shape[1], enc_mask.shape[1])).to(device)
         enc_attn_mask[:, :] = enc_mask[:, None, :]
-        enc_attn_mask.transpose_(1, 2)
+        enc_attn_mask = enc_attn_mask.transpose(1, 2)
         enc_attn_mask[:, :] *= input_mask[:, None, :]
-        enc_attn_mask.transpose_(1, 2)
+        enc_attn_mask = enc_attn_mask.transpose(1, 2)
 
         x = self.embedding_layer(input_batch)
         for idx in range(len(self.decoder_layers)):
@@ -295,11 +306,10 @@ class SelfAttention(nn.Module):
         value = self.V(input_batch)
 
         attn_logits = torch.matmul(query, torch.transpose(key, -2, -1))/ math.sqrt(self.d_k)
-        masked_attn_logits = attn_logits.masked_fill(attn_mask==0, -np.inf)
+        #mask padding and future words with a great negative value.
+        # DO NOT USE '-INF' VALUES BECAUSE THEY WILL PRODUCE NaN VALUES AFTER SOFTMAX FOR PADDING WORDS
+        masked_attn_logits = attn_logits.masked_fill(attn_mask==0, value=_MASKING_VALUE)
         attn_scores = F.softmax(masked_attn_logits, -1)
-        #pad attentions are row filled with 0's. The softmax will then output NaN for these row.
-        # the following line just replace NaN values with 0's
-        attn_scores[attn_scores != attn_scores] = 0
         attn_scores = self.dropout(attn_scores)
         out = torch.matmul(attn_scores, value)
         return out
@@ -329,11 +339,10 @@ class EncoderAttention(nn.Module):
         value = self.V(encoder_out)
 
         attn_logits = torch.matmul(query, torch.transpose(key, -2, -1))/ math.sqrt(self.d_k)
-        masked_attn_logits = attn_logits.masked_fill(attn_mask==0, -np.inf)
-        attn_scores = F.softmax(masked_attn_logits, -1)
-        #pad attentions are row filled with 0's. The softmax will then output NaN for these rows.
-        # the following line just replace NaN values with 0's
-        attn_scores[attn_scores != attn_scores] = 0
+        #mask padding and future words with a great negative value.
+        # DO NOT USE '-INF' VALUES BECAUSE THEY WILL PRODUCE NaN VALUES AFTER SOFTMAX FOR PADDING WORDS
+        masked_attn_logits = attn_logits.masked_fill(attn_mask==0, value=_MASKING_VALUE)
+        attn_scores = F.softmax(masked_attn_logits, dim=-1)
         attn_scores = self.dropout(attn_scores)
         out = torch.matmul(attn_scores, value)
         return out

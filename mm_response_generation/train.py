@@ -18,7 +18,8 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import Logger, plotting_loss, DataParallelV2
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="4,5"  # specify which GPU(s) to be used
+torch.autograd.set_detect_anomaly(True)
 
 
 def instantiate_model(args, word2id, device):
@@ -70,26 +71,20 @@ def move_batch_to_device(batch, device):
     for i_idx in range(len(batch['focus_items'])):
         batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
         batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
-    batch['seq_lengths'] = batch['seq_lengths'].to(device)
+    #batch['seq_lengths'] = batch['seq_lengths'].to(device)
 
 
 def forward_step(model, batch, targets, targets_padding_mask, response_criterion, device):
     move_batch_to_device(batch, device)
     targets = targets.to(device)
     targets_padding_mask = targets_padding_mask.to(device)
-
     vocab_logits = model(**batch,
                         candidates_pool=targets,
                         pools_padding_mask=targets_padding_mask)
-    #todo problem here: CE expect each batch sample to belong to one class, here instead I have a sequence of results for each sample (3D tensor)
     #targets are shifted right by one
     shifted_targets = torch.cat((targets[:, 1:], torch.zeros((targets.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
-    pdb.set_trace()
     response_loss = response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
                                         shifted_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
-    #todo better to create input and target in the _collate_fn
-    #todo masking here no more possible (loss is a single value at this point)
-    response_loss = torch.masked_select(response_loss, targets_padding_mask)
 
     """
     # the true response is always the first in the list of candidates
@@ -146,7 +141,7 @@ def train(train_dataset, dev_dataset, args, device):
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate_fn)
 
     #prepare losses and optimizer
-    response_criterion = torch.nn.CrossEntropyLoss().to(device)
+    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=vocabulary[TrainConfig._PAD_TOKEN]).to(device)
     #response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
@@ -191,7 +186,7 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = []
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, targets, targets_padding_mas) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, targets, targets_padding_mask) in enumerate(devloader):
                 response_loss = forward_step(model, 
                                             batch=batch,
                                             targets=targets,

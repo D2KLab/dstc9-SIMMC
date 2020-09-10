@@ -118,6 +118,8 @@ class MMStatefulLSTM(nn.Module):
         assert utterances.shape[0] == len(focus_items), 'Inconsistent batch size'
         assert utterances.shape[0] == candidates_pool.shape[0], 'Inconsistent batch size'
         assert utterances.shape[0] == pools_padding_mask.shape[0], 'Inconsistent batch size'
+        assert utterances.shape == utterances_mask.shape, 'Inconsistent mask size'
+        assert candidates_pool.shape == pools_padding_mask.shape, 'Inconsistent mask size'
         curr_device = utterances.device
         for idx, _ in enumerate(history):
             if len(history[idx]):
@@ -161,16 +163,17 @@ class MMStatefulLSTM(nn.Module):
         h_t_tilde = torch.stack(h_t_tilde)
 
         if self.mode == 'generation':
-            true_responses = candidates_pool if self.training else candidates_pool[:, 0]
+            #true_responses = candidates_pool if self.training else candidates_pool[:, 0]
             #responses_emb = self.word_embeddings_layer(true_responses)
             #true_responses shape BxSEQ_LEN ; responses_emb shape BxSEQ_LENxHIDDEN_SIZE
             #context = torch.cat((h_t_tilde, v_t_tilde), dim=-1)
-            vocab_logits = self.decoder(input_batch=true_responses,
+            #input_batch, encoder_out, history_context, visual_context, input_mask, enc_mask
+            vocab_logits = self.decoder(input_batch=candidates_pool,
                                         encoder_out=u_t_all,
                                         history_context=h_t_tilde,
                                         visual_context=v_t_tilde,
-                                        enc_mask=utterances_mask,
-                                        input_mask=pools_padding_mask)
+                                        input_mask=pools_padding_mask,
+                                        enc_mask=utterances_mask)
             return vocab_logits
         else:
             raise Exception('Not implemented')
@@ -291,6 +294,7 @@ class MMStatefulLSTM(nn.Module):
                 curr_vals[item_idx, :batch_vlens[batch_idx][item_idx]] = v.clone().detach()
             padded_focus.append([curr_keys, curr_vals])
 
+        """
         # sort instances by sequence length in descending order and order targets to keep the correspondance
         transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
         transcripts_tensor = transcripts_tensor[perm_idx]
@@ -310,17 +314,18 @@ class MMStatefulLSTM(nn.Module):
             sorted_actions.append(actions[idx])
             sorted_attributes.append(attributes[idx])
             sorted_focus_items.append(padded_focus[idx])
+        """
 
         batch_dict = {}
         batch_dict['utterances'] = transcripts_tensor
         batch_dict['utterances_mask'] = transcripts_padding_mask
-        batch_dict['history'] = sorted_dial_history
-        batch_dict['actions'] = sorted_actions
-        batch_dict['attributes'] = sorted_attributes
-        batch_dict['focus_items'] = sorted_focus_items
-        batch_dict['seq_lengths'] = transcripts_lengths
+        batch_dict['history'] = padded_history
+        batch_dict['actions'] = actions
+        batch_dict['attributes'] = attributes
+        batch_dict['focus_items'] = padded_focus
+        #batch_dict['seq_lengths'] = transcripts_lengths
 
-        return sorted_dial_ids, sorted_dial_turns, batch_dict, pools_tensor, pools_padding_mask
+        return dial_ids, turns, batch_dict, pools_tensor, pools_padding_mask
 
 
     def __str__(self):
@@ -381,7 +386,6 @@ class SentenceEncoder(nn.Module):
             input_seq = pack_padded_sequence(seq, seq_lengths, batch_first=True) #seq_lengths.cpu().numpy()
         else:
             input_seq = seq
-
         #to call every forward if DataParallel is used. Otherwise only once inside __init__()
         self.encoder.flatten_parameters()
         sentences_outs, (h_t, c_t) = self.encoder(input_seq)
