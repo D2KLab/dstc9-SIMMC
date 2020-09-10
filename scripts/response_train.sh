@@ -19,6 +19,7 @@ python mm_response_generation/train.py \
         --embeddings $GLOVE_PATH\
         --metadata_ids $METADATA_IDS_PATH\
         --batch_size 128\
-        --epochs 15\
+        --epochs 20\
         --mode generation\
+        --checkpoints\
         --cuda

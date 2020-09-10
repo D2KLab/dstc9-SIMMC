@@ -1,5 +1,4 @@
 
-
 """
 class SIMMCFashionConfig():
     #? not used
@@ -7,14 +6,27 @@ class SIMMCFashionConfig():
     _FASHION_ATTRS_NO = 33
 """
 
-class TrainConfig():
+model_conf = {
+    'dropout_prob': .3,
+    'hidden_size': 300,
+    'freeze_embeddings': False,
+    'n_encoders': 1,
+    'encoder_heads': 4,
+    'n_decoders': 4,
+    'decoder_heads': 4
+}
 
-    _SEED = 240797
-    _DISTRACTORS_SAMPLING = 1 #-1 to avoid sampling
-    _LEARNING_RATE = 1e-3
-    _WEIGHT_DECAY = 0
-    _PAD_TOKEN = '[PAD]'
-    _START_TOKEN = '[START]'
-    _END_TOKEN = '[END]'
-    _UNK_TOKEN = '[UNK]'
-    _CHECKPOINT_FOLDER = 'mm_response_generation/checkpoints'
+special_toks = {
+    'pad_token': '[PAD]',
+    'start_token': '[START]',
+    'end_token': '[END]',
+    'unk_token': '[UNK]',
+}
+
+train_conf = {
+    'seed': 240797,
+    'distractors_sampling': 1, #-1 to avoid sampling
+    'lr': 1e-3,
+    'weight_decay': 0,
+    'ckpt_folder': 'mm_response_generation/checkpoints'
+}

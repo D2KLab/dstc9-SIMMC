@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 import math
 import os
 import pdb
@@ -12,43 +13,34 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from config import TrainConfig
+from config import model_conf, special_toks, train_conf
 from dataset import FastDataset
 from models import BlindStatelessLSTM, MMStatefulLSTM
-from utilities import Logger, plotting_loss, DataParallelV2
+from utilities import DataParallelV2, Logger, plotting_loss
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="4,5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
 torch.autograd.set_detect_anomaly(True)
 
 
 def instantiate_model(args, word2id, device):
-    special_tokens = {'pad_token': TrainConfig._PAD_TOKEN,
-                    'start_token': TrainConfig._START_TOKEN,
-                    'end_token': TrainConfig._END_TOKEN,
-                    'unk_token': TrainConfig._UNK_TOKEN}
+
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED,
+                                pad_token=special_toks['pad_token'],
+                                unk_token=special_toks['unk_token'],
+                                seed=train_conf['seed'],
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
-    elif args.model == 'blindstateful':
-        return BlindStatefulLSTM(word_embeddings_path=args.embeddings, 
-                                word2id=word2id,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED,
-                                OOV_corrections=False)
     elif args.model == 'mmstateful':
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                seed=TrainConfig._SEED,
+                                seed=train_conf['seed'],
                                 mode=args.mode,
                                 device=device,
-                                **special_tokens)
+                                **special_toks,
+                                **model_conf)
     else:
         raise Exception('Model not present!')
 
@@ -100,15 +92,15 @@ def train(train_dataset, dev_dataset, args, device):
     # prepare checkpoint folder
     if args.checkpoints:
         curr_date = datetime.datetime.now().isoformat().split('.')[0]
-        checkpoint_dir = os.path.join(TrainConfig._CHECKPOINT_FOLDER, curr_date)
+        checkpoint_dir = os.path.join(train_conf['ckpt_folder'], curr_date)
         os.makedirs(checkpoint_dir, exist_ok=True)
         # prepare logger to redirect both on file and stdout
         sys.stdout = Logger(os.path.join(checkpoint_dir, 'train.log'))
         sys.stderr = Logger(os.path.join(checkpoint_dir, 'err.log'))
     print('device used: {}'.format(str(device)))
     print('batch used: {}'.format(args.batch_size))
-    print('lr used: {}'.format(TrainConfig._LEARNING_RATE))
-    print('weight decay: {}'.format(TrainConfig._WEIGHT_DECAY))
+    print('lr used: {}'.format(train_conf['lr']))
+    print('weight decay: {}'.format(train_conf['weight_decay']))
 
     print('TRAINING DATASET: {}'.format(train_dataset))
     print('VALIDATION DATASET: {}'.format(dev_dataset))
@@ -123,6 +115,9 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare model
     model = instantiate_model(args, word2id=vocabulary, device=device)
+    if args.checkpoints:
+        with open(os.path.join(checkpoint_dir, 'model_conf.json'), 'w+') as fp:
+            json.dump(model_conf, fp)
     # work on multiple GPUs when available
     if torch.cuda.device_count() > 1:
         model = DataParallelV2(model)
@@ -135,15 +130,15 @@ def train(train_dataset, dev_dataset, args, device):
     params = {'batch_size': args.batch_size,
             'shuffle': True, #todo set to True
             'num_workers': 0,
-            'pin_memory': True} #'pin_memory': True
+            'pin_memory': True}
     collate_fn = model.collate_fn if torch.cuda.device_count() <= 1 else model.module.collate_fn
     trainloader = DataLoader(train_dataset, **params, collate_fn=collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate_fn)
 
     #prepare losses and optimizer
-    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=vocabulary[TrainConfig._PAD_TOKEN]).to(device)
+    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=vocabulary[special_toks['pad_token']]).to(device)
     #response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=TrainConfig._LEARNING_RATE, weight_decay=TrainConfig._WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     #todo uncomment
     #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
@@ -152,7 +147,7 @@ def train(train_dataset, dev_dataset, args, device):
     losses_trend = {'train': [], 
                     'dev': []}
 
-    candidates_pools_size = 100 if TrainConfig._DISTRACTORS_SAMPLING < 0 else TrainConfig._DISTRACTORS_SAMPLING + 1
+    candidates_pools_size = 100 if train_conf['distractors_sampling'] < 0 else train_conf['distractors_sampling'] + 1
     print('candidates\' pool size: {}'.format(candidates_pools_size))
     best_loss = math.inf
     start_t = time.time()
@@ -296,8 +291,8 @@ if __name__ == '__main__':
     if not args.checkpoints:
         print('************ NO CHECKPOINT SAVE !!! ************')
 
-    train_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING)
-    dev_dataset = FastDataset(dat_path=args.eval, metadata_ids_path= args.metadata_ids, distractors_sampling=TrainConfig._DISTRACTORS_SAMPLING) #? sampling on eval
+    train_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids, distractors_sampling=train_conf['distractors_sampling'])
+    dev_dataset = FastDataset(dat_path=args.eval, metadata_ids_path= args.metadata_ids, distractors_sampling=train_conf['distractors_sampling']) #? sampling on eval
     print('TRAIN DATA LEN: {}'.format(len(train_dataset)))
     device = torch.device('cuda:0'.format(args.cuda) if torch.cuda.is_available() and args.cuda else 'cpu')
 

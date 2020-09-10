@@ -13,14 +13,6 @@ from .decoder import Decoder
 
 
 class MMStatefulLSTM(nn.Module):
-    """
-
-    Args:
-        nn ([type]): [description]
-    """
-    _HIDDEN_SIZE = 300
-    _DROPOUT_P = 0
-    _FREEZE_EMBS = True
 
     def __init__(self, 
                 word_embeddings_path, 
@@ -29,7 +21,14 @@ class MMStatefulLSTM(nn.Module):
                 start_token,
                 end_token,
                 unk_token, 
-                seed, 
+                seed,
+                dropout_prob,
+                hidden_size,
+                n_encoders,
+                encoder_heads,
+                n_decoders,
+                decoder_heads,
+                freeze_embeddings,
                 mode='generation', 
                 device='cpu'):
 
@@ -49,45 +48,45 @@ class MMStatefulLSTM(nn.Module):
                                                         word2id=word2id, 
                                                         pad_token=pad_token, 
                                                         unk_token=unk_token,
-                                                        freeze=self._FREEZE_EMBS)
+                                                        freeze=freeze_embeddings)
         self.emb_dim = self.word_embeddings_layer.embedding_size
         self.sentence_encoder = SentenceEncoder(emb_dim=self.emb_dim, 
-                                                hidden_size=self._HIDDEN_SIZE, 
+                                                hidden_size=hidden_size, 
                                                 bidirectional=True,
-                                                dropout_prob=self._DROPOUT_P)
+                                                dropout_prob=dropout_prob)
 
-        self.memory_net = MemoryNet(in_features=self._HIDDEN_SIZE, 
-                                    memory_hidden_size=self._HIDDEN_SIZE, 
-                                    dropout_prob=self._DROPOUT_P)
+        self.memory_net = MemoryNet(in_features=hidden_size, 
+                                    memory_hidden_size=hidden_size, 
+                                    dropout_prob=dropout_prob)
 
         #for h heads: d_k == d_v == emb_dim/h
-        self.triton_attention = Triton(in_features=self._HIDDEN_SIZE,
-                                        d_k=self._HIDDEN_SIZE//n_enc_heads,
-                                        d_v=self._HIDDEN_SIZE//n_enc_heads,
-                                        d_f=self._HIDDEN_SIZE//2,
-                                        n_heads=n_enc_heads,
+        self.triton_attention = Triton(in_features=hidden_size,
+                                        d_k=hidden_size//encoder_heads,
+                                        d_v=hidden_size//encoder_heads,
+                                        d_f=hidden_size//2,
+                                        n_heads=encoder_heads,
                                         n_layers=n_encoders,
-                                        dropout_prob=self._DROPOUT_P)
+                                        dropout_prob=dropout_prob)
 
-        self.layerNorm = nn.LayerNorm(self._HIDDEN_SIZE)
-        self.dropout = nn.Dropout(p=self._DROPOUT_P)
+        self.layerNorm = nn.LayerNorm(hidden_size)
+        self.dropout = nn.Dropout(p=dropout_prob)
 
         if mode == 'retrieval':
-            self.out_layer = CandidateAttentiveOutput(in_features=self._HIDDEN_SIZE, 
-                                                    hidden_size=self._HIDDEN_SIZE//2)
+            self.out_layer = CandidateAttentiveOutput(in_features=hidden_size, 
+                                                    hidden_size=hidden_size//2)
         else:
             #for h heads: d_k == d_v == emb_dim/h
             self.decoder = Decoder(d_model=self.emb_dim,
-                                    d_enc=2*self._HIDDEN_SIZE,
-                                    d_context=self._HIDDEN_SIZE,
-                                    d_k=self.emb_dim//n_dec_heads,
-                                    d_v=self.emb_dim//n_dec_heads,
+                                    d_enc=2*hidden_size,
+                                    d_context=hidden_size,
+                                    d_k=self.emb_dim//decoder_heads,
+                                    d_v=self.emb_dim//decoder_heads,
                                     d_f=self.emb_dim//2,
                                     n_layers=n_decoders,
-                                    n_heads=n_dec_heads,
+                                    n_heads=decoder_heads,
                                     embedding_net=self.word_embeddings_layer,
                                     vocab_size=len(word2id),
-                                    dropout_prob=self._DROPOUT_P,
+                                    dropout_prob=dropout_prob,
                                     start_id=self.start_id,
                                     end_id=self.end_id)
 
