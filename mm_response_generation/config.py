@@ -25,7 +25,7 @@ special_toks = {
 
 train_conf = {
     'seed': 240797,
-    'distractors_sampling': 1, #-1 to avoid sampling
+    'distractors_sampling': -1, #-1 to avoid sampling
     'lr': 1e-3,
     'weight_decay': 0,
     'ckpt_folder': 'mm_response_generation/checkpoints'

@@ -39,6 +39,7 @@ def instantiate_model(args, word2id, device):
                                 seed=train_conf['seed'],
                                 mode=args.mode,
                                 device=device,
+                                retrieval_eval=args.retrieval_eval,
                                 **special_toks,
                                 **model_conf)
     else:
@@ -269,9 +270,9 @@ if __name__ == '__main__':
         type=int,
         help="Number of epochs")
     parser.add_argument(
-        "--mode",
+        "--inference_criterion",
         type=str,
-        choices=['generation', 'retrieval'],
+        choices=['greedy', 'beam_search'],
         required=True,
         help="Response generation training mode (options: 'generation', 'retrieval')")
     parser.add_argument(
@@ -280,6 +281,12 @@ if __name__ == '__main__':
         default=False,
         required=False,
         help="Flag to enable checkpoint saving for best model, logs and plots")
+    parser.add_argument(
+        "--retrieval_eval",
+        action='store_true',
+        default=False,
+        required=False,
+        help="Flag to enable retrieval evaluation")
     parser.add_argument(
         "--cuda",
         action='store_true',

@@ -20,6 +20,7 @@ python mm_response_generation/train.py \
         --metadata_ids $METADATA_IDS_PATH\
         --batch_size 128\
         --epochs 20\
-        --mode generation\
+        --inference_criterion greedy\
         --checkpoints\
+        --retrieval_eval\
         --cuda

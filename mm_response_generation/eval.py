@@ -3,13 +3,14 @@ import json
 import os
 import pdb
 import sys
+import time
 
 import torch
 from torch.utils.data import DataLoader
 
 sys.path.append('.')
 
-from config import TrainConfig
+from config import special_toks, train_conf
 from dataset import FastDataset
 from models import BlindStatelessLSTM, MMStatefulLSTM
 from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
@@ -30,23 +31,24 @@ from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 """
 
 
-def instantiate_model(args, word2id, device):
+def instantiate_model(args, word2id, model_configurations, device):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED,
+                                pad_token=special_toks['pad_token'],
+                                unk_token=special_toks['unk_token'],
+                                seed=train_conf['seed'],
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
     elif args.model == 'mmstateful':
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
-                                pad_token=TrainConfig._PAD_TOKEN,
-                                unk_token=TrainConfig._UNK_TOKEN,
-                                seed=TrainConfig._SEED,
-                                OOV_corrections=False,
-                                device=device)
+                                seed=train_conf['seed'],
+                                device=device,
+                                retrieval_eval=args.retrieval_eval,
+                                mode='inference',
+                                **special_toks,
+                                **model_configurations)
     else:
         raise Exception('Model not present!')
 
@@ -74,13 +76,14 @@ def remove_dataparallel(load_checkpoint_path):
 
 def move_batch_to_device(batch, device):
     batch['utterances'] = batch['utterances'].to(device)
+    batch['utterances_mask'] = batch['utterances_mask'].to(device)
     for h_idx in range(len(batch['history'])):
         if len(batch['history'][h_idx]):
             batch['history'][h_idx] = batch['history'][h_idx].to(device)
     for i_idx in range(len(batch['focus_items'])):
         batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
         batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
-    batch['seq_lengths'] = batch['seq_lengths'].to(device)
+    #batch['seq_lengths'] = batch['seq_lengths'].to(device)
 
 
 def eval(model, test_dataset, args, save_folder, device):
@@ -97,20 +100,26 @@ def eval(model, test_dataset, args, save_folder, device):
 
     eval_dict = create_eval_dict(test_dataset)
     with torch.no_grad():
-        for curr_step, (dial_ids, turns, batch, candidates_pool) in enumerate(testloader):
+        for curr_step, (dial_ids, turns, batch, candidates_pool, candidates_padding_mask) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
             dial_id = dial_ids[0]
             turn = turns[0]
 
             move_batch_to_device(batch, device)
             candidates_pool = candidates_pool.to(device)
+            candidates_padding_mask = candidates_padding_mask.to(device)
 
-            matching_logits = model(**batch, candidates_pool=candidates_pool)
+            res = model(**batch, 
+                            candidates_pool=candidates_pool,
+                            pools_padding_mask=candidates_padding_mask)
+            if args.retrieval_eval:
+                responses = res[0]
+                scores = res[1]
+            else:
+                scores = res
 
             #get retrieved response index in the pool
-            #retrieved_response_idx = torch.argmax(matching_scores, dim=-1)
-            matching_scores = torch.nn.functional.softmax(matching_logits, dim=-1)
-            eval_dict[dial_id]['candidate_scores'].append(matching_scores.squeeze(0).tolist())
+            eval_dict[dial_id]['candidate_scores'].append(scores.squeeze(0).tolist())
 
     eval_list = []
     for key in eval_dict:
@@ -146,7 +155,13 @@ if __name__ == '__main__':
         default=None,
         type=str,
         required=True,
-        help="Path to the vocabulary pickle file")        
+        help="Path to the vocabulary pickle file")
+    parser.add_argument(
+        "--model_conf",
+        default=None,
+        type=str,
+        required=True,
+        help="Path to the model configuration JSON file")     
     parser.add_argument(
         "--data",
         default=None,
@@ -165,11 +180,19 @@ if __name__ == '__main__':
         required=True,
         help="Path to metadata ids file")
     parser.add_argument(
+        "--retrieval_eval",
+        action='store_true',
+        default=False,
+        required=False,
+        help="Flag to enable retrieval evaluation")
+    parser.add_argument(
         "--cuda",
         default=None,
         required=False,
         type=int,
         help="id of device to use")
+
+    start_t = time.time()
 
     args = parser.parse_args()
     test_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids)
@@ -180,13 +203,23 @@ if __name__ == '__main__':
 
     # prepare model
     word2id = torch.load(args.vocabulary)
-
+    with open(args.model_conf) as fp:
+        model_configurations = json.load(fp)
+    #pdb.set_trace()
     model = instantiate_model(args, 
                             word2id=word2id,
+                            model_configurations=model_configurations,
                             device=device)
-    model.load_state_dict(remove_dataparallel(args.model_path))
+    #model.load_state_dict(remove_dataparallel(args.model_path))
+    model.load_state_dict(torch.load(args.model_path))
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))
 
     eval(model, test_dataset, args, save_folder=model_folder, device=device)
+
+    end_t = time.time()
+    m_count = ((end_t-start_t)/60) % 60
+    s_count = (end_t-start_t) % 60
+
+    print('training time: {}m:{}s'.format(round(m_count), round(s_count)))

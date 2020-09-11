@@ -14,13 +14,13 @@ from .decoder import Decoder
 
 class MMStatefulLSTM(nn.Module):
 
-    def __init__(self, 
-                word_embeddings_path, 
-                word2id, 
+    def __init__(self,
+                word_embeddings_path,
+                word2id,
                 pad_token,
                 start_token,
                 end_token,
-                unk_token, 
+                unk_token,
                 seed,
                 dropout_prob,
                 hidden_size,
@@ -29,19 +29,18 @@ class MMStatefulLSTM(nn.Module):
                 n_decoders,
                 decoder_heads,
                 freeze_embeddings,
-                mode='generation', 
+                retrieval_eval=False,
+                mode='train',
                 device='cpu'):
 
-        assert mode in ['generation', 'retrieval'], 'Mode {} not available. Only \'generation\' and \'retrieval\''.format(mode)
         torch.manual_seed(seed)
         super(MMStatefulLSTM, self).__init__()
 
-        #self.device = device
         self.mode = mode
+        self.retrieval_eval = retrieval_eval
         self.start_id = word2id[start_token]
         self.end_id = word2id[end_token]
-        n_encoders, n_enc_heads = 1, 4
-        n_decoders, n_dec_heads = 4, 4
+        self.pad_id = word2id[pad_token]
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
@@ -110,6 +109,8 @@ class MMStatefulLSTM(nn.Module):
             [type]: [description]
         """
         #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
+        if self.mode == 'inference':
+            assert utterances.shape[0] == 1, 'Only unitary batches allowed during inference'
         assert utterances.shape[0] == utterances_mask.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == len(history), 'Inconsistent batch size'
         assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
@@ -161,12 +162,8 @@ class MMStatefulLSTM(nn.Module):
                 h_t_tilde.append(self.memory_net(u_t[idx], h_t[idx]))
         h_t_tilde = torch.stack(h_t_tilde)
 
-        if self.mode == 'generation':
-            #true_responses = candidates_pool if self.training else candidates_pool[:, 0]
-            #responses_emb = self.word_embeddings_layer(true_responses)
-            #true_responses shape BxSEQ_LEN ; responses_emb shape BxSEQ_LENxHIDDEN_SIZE
-            #context = torch.cat((h_t_tilde, v_t_tilde), dim=-1)
-            #input_batch, encoder_out, history_context, visual_context, input_mask, enc_mask
+        #decoding phase
+        if self.mode == 'train':
             vocab_logits = self.decoder(input_batch=candidates_pool,
                                         encoder_out=u_t_all,
                                         history_context=h_t_tilde,
@@ -175,15 +172,54 @@ class MMStatefulLSTM(nn.Module):
                                         enc_mask=utterances_mask)
             return vocab_logits
         else:
-            raise Exception('Not implemented')
-            """
-            #encode candidates
-            candidates_emb = self.word_embeddings_layer(candidates_pool)
-            encoded_candidates = torch.stack([self.sentence_encoder(candidates)[0] for candidates in candidates_emb])
-            #try the fusion with a fnn also
-            turns_repr = v_t_tilde + h_t_tilde
-            out = self.out_layer(turns_repr, encoded_candidates)
-            """
+            #at inference time (NOT EVAL)
+            infer_tuple = tuple()
+            gen_ids = self.beam_search(u_t_all, h_t_tilde, v_t_tilde, utterances_mask)
+            #todo here beam search
+            if self.retrieval_eval:
+                #eval on retrieval task 
+                #build a fake batch by extenpanding the tensors
+                vocab_logits = [
+                                    self.decoder(input_batch=pool,
+                                                encoder_out=u_t_all.expand(pool.shape[0], -1, -1),
+                                                history_context=h_t_tilde.expand(pool.shape[0], -1),
+                                                visual_context=v_t_tilde.expand(pool.shape[0], -1),
+                                                input_mask=pool_mask,
+                                                enc_mask=utterances_mask.expand(pool.shape[0], -1))
+                                    for pool, pool_mask in zip(candidates_pool, pools_padding_mask)
+                                ]
+                #candidates_scores shape: Bx100
+                candidates_scores = self.compute_candidates_scores(candidates_pool, vocab_logits)
+                infer_tuple += (candidates_scores,)
+            return infer_tuple
+
+
+    def beam_search(self, encoder_out, history_context, visual_context, enc_mask):
+        _BEAM_SIZE = 2
+        _MAX_INFER_LEN = 50
+        device = encoder_out.device
+        gen_ids = torch.zeros((1, 1), dtype=torch.long).to(device)
+        gen_ids[:, 0] = self.start_id
+        vocab_logits = self.decoder(input_batch=gen_ids,
+                            encoder_out=encoder_out,
+                            history_context=history_context,
+                            visual_context=visual_context,
+                            enc_mask=enc_mask)
+        beam_ids = torch.argsort(vocab_logits, descending=True, dim=-1)[:,:,:_BEAM_SIZE]
+        gen_ids = beam_ids.view(_BEAM_SIZE, -1)
+        for n_iteration in range(_MAX_INFER_LEN):
+            vocab_logits = self.decoder(input_batch=gen_ids,
+                            encoder_out=encoder_out.expand(gen_ids.shape[0], -1, -1),
+                            history_context=history_context.expand(gen_ids.shape[0], -1),
+                            visual_context=visual_context.expand(gen_ids.shape[0], -1),
+                            enc_mask=enc_mask.expand(gen_ids.shape[0], -1))
+            beam_ids = torch.argsort(vocab_logits, descending=True, dim=-1)[:,:,:_BEAM_SIZE]
+            pdb.set_trace()
+            gen_ids = torch.cat((gen_ids, beam_ids), dim=-1)
+        if n_iteration == _MAX_INFER_LEN:
+            print('MAX INFER LEN REACHED !!')
+
+            
 
 
     def encode_v_context(self, focus_images):
@@ -193,6 +229,24 @@ class MMStatefulLSTM(nn.Module):
             v_ht, _ = self.sentence_encoder(self.word_embeddings_layer(values))
             v_batch.append([k_ht, v_ht])
         return v_batch
+
+
+    def compute_candidates_scores(self, candidates_pools, vocab_logits):
+        """The score of each candidate is the sum of the log-likelihood of each word, normalized by its length.
+        The score will be a negative value, longer sequences will be penalized without the normalization by length.
+        """
+        scores = torch.zeros(candidates_pools.shape[:2])
+        for batch_idx, (pool_ids, pool_logits) in enumerate(zip(candidates_pools[:, :, 1:], vocab_logits)):
+            pool_lprobs = F.log_softmax(pool_logits, dim=-1)
+            for sentence_idx, (candidate_ids, candidate_lprobs) in enumerate(zip(pool_ids, pool_lprobs)):
+                curr_lprob = []
+                for candidate_word, words_probs in zip(candidate_ids, candidate_lprobs):
+                    #until padding
+                    if candidate_word.item() == self.pad_id:
+                        break
+                    curr_lprob.append(words_probs[candidate_word.item()].item())
+                scores[batch_idx, sentence_idx] = sum(curr_lprob)/len(curr_lprob)
+        return scores
 
 
     def collate_fn(self, batch):
@@ -249,17 +303,17 @@ class MMStatefulLSTM(nn.Module):
             padded_history.append(history_tensor)
 
         #pad the response candidates
-        # if training take only the true response
-        responses_pool = [pool_sample[0] for pool_sample in responses_pool]
-        batch_lens = torch.tensor(list(map(len, responses_pool)), dtype=torch.long)
-        pools_tensor = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
-        pools_padding_mask = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
-        pools_tensor[:, 0] = self.start_id
-        for batch_idx, (seq, seqlen) in enumerate(zip(responses_pool, batch_lens)):
-            pools_tensor[batch_idx, 1:seqlen+1] = seq.clone().detach()
-            pools_tensor[batch_idx, seqlen+1] = self.end_id
-            pools_padding_mask[batch_idx, :seqlen+2] = 1
-        """
+        # if training take only the true response (the first one)
+        if self.training or not self.retrieval_eval:
+            responses_pool = [pool_sample[0] for pool_sample in responses_pool]
+            batch_lens = torch.tensor(list(map(len, responses_pool)), dtype=torch.long)
+            pools_tensor = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
+            pools_padding_mask = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
+            pools_tensor[:, 0] = self.start_id
+            for batch_idx, (seq, seqlen) in enumerate(zip(responses_pool, batch_lens)):
+                pools_tensor[batch_idx, 1:seqlen+1] = seq.clone().detach()
+                pools_tensor[batch_idx, seqlen+1] = self.end_id
+                pools_padding_mask[batch_idx, :seqlen+2] = 1
         else:
             batch_lens = torch.tensor([list(map(len, pool_sample)) for pool_sample in responses_pool], dtype=torch.long)
             pools_tensor = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()+2), dtype=torch.long)
@@ -270,7 +324,6 @@ class MMStatefulLSTM(nn.Module):
                     pools_tensor[batch_idx, pool_idx, 1:seqlen+1] = seq.clone().detach()
                     pools_tensor[batch_idx, pool_idx, seqlen+1] = self.end_id
                     pools_padding_mask[batch_idx, pool_idx, :seqlen+2] = 1
-        """
 
         #pad focus items
         padded_focus = []

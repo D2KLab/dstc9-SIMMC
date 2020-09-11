@@ -53,7 +53,10 @@ class Decoder(nn.Module):
                                         nn.Linear(d_model//4, self.vocab_size))
 
 
-    def forward(self, input_batch, encoder_out, history_context, visual_context, input_mask, enc_mask):
+    def forward(self, input_batch, encoder_out, history_context, visual_context, enc_mask, input_mask=None):
+        device = input_batch.device
+        if input_mask is None:
+            input_mask = torch.ones(input_batch.shape, dtype=torch.long).to(device)
         assert input_batch.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_batch.dim())
         assert encoder_out.dim() == 3, 'Expected tensor with 2 dimensions but got {}'.format(encoder_out.dim())
         assert input_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_mask.dim())
@@ -72,13 +75,15 @@ class Decoder(nn.Module):
         assert input_batch.device == input_mask.device, 'Different devices'
         assert input_batch.device == enc_mask.device, 'Different devices'
         #input mask is the padding mask
-        device = input_batch.device
         #self attention mask is a mask resulting from the combination of attention and padding masks
         #the attention mask is an upper triangular mask that avoid each word to attend to the future
         #the padding mask instead is contains 0's for the entries containing padding in the correspondent sequence
         #the resulting matrix avoids each word to attend to future and delete the attention between paddings
-        self_attn_mask = torch.tensor((np.triu(np.ones((input_batch.shape[0], input_batch.shape[1], input_batch.shape[1])), k=1) == 0), dtype=torch.long).to(device)
-        self_attn_mask &= input_mask[:, :, None]
+        if input_mask is not None:
+            self_attn_mask = torch.tensor((np.triu(np.ones((input_batch.shape[0], input_batch.shape[1], input_batch.shape[1])), k=1) == 0), dtype=torch.long).to(device)
+            self_attn_mask &= input_mask[:, :, None]
+        else:
+            self_attn_mask = torch.ones((input_batch.shape[0], input_batch.shape[1], input_batch.shape[1]))
 
         #encoder attention mask avoid 2 things:
         # the decoder to attend to encoder padding (to apply row wise)
@@ -215,6 +220,7 @@ class MultiAttentiveDecoder(nn.Module):
 
 
 class FusionModule(nn.Module):
+
     def __init__(self, d_model, d_context, dropout_prob):
         super(FusionModule, self).__init__()
 
@@ -237,7 +243,8 @@ class FusionModule(nn.Module):
                                             nn.ReLU(),
                                             nn.Dropout(p=dropout_prob),
                                             nn.Linear(in_features=d_cat, out_features=d_model))
-                                            
+
+
     def forward(self, decoder_batch, history_cntx, visual_cntx):
         assert decoder_batch.dim() == 3, 'Expected 3 dimensions, got {}'.format(decoder_batch.dim())
         assert history_cntx.shape[-1] == self.d_context, 'History dimension {} does not match d_context of {}'.format(history_cntx.shape[-1], self.d_context)
