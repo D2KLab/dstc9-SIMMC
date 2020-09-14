@@ -37,9 +37,7 @@ def instantiate_model(args, word2id, device):
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
                                 seed=train_conf['seed'],
-                                mode=args.mode,
                                 device=device,
-                                retrieval_eval=args.retrieval_eval,
                                 **special_toks,
                                 **model_conf)
     else:
@@ -76,6 +74,7 @@ def forward_step(model, batch, targets, targets_padding_mask, response_criterion
                         pools_padding_mask=targets_padding_mask)
     #targets are shifted right by one
     shifted_targets = torch.cat((targets[:, 1:], torch.zeros((targets.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
+    #pdb.set_trace()
     response_loss = response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
                                         shifted_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
 
@@ -123,7 +122,7 @@ def train(train_dataset, dev_dataset, args, device):
     if torch.cuda.device_count() > 1:
         model = DataParallelV2(model)
     model.to(device)
-    print('using {} GPU(s)'.format(torch.cuda.device_count()))
+    print('using {} GPU(s): {}'.format(torch.cuda.device_count(), os.environ["CUDA_VISIBLE_DEVICES"]))
     print('MODEL NAME: {}'.format(args.model))
     print('NETWORK: {}'.format(model))
 
@@ -140,9 +139,11 @@ def train(train_dataset, dev_dataset, args, device):
     response_criterion = torch.nn.CrossEntropyLoss(ignore_index=vocabulary[special_toks['pad_token']]).to(device)
     #response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
-    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
+    #todo scheduler step every 100 steps
+    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(100, 100*5, 100)), gamma = 0.1)
+    #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     #todo uncomment
-    #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=5, threshold=1e-3, cooldown=4, verbose=True)
+    #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=10, threshold=1e-2, cooldown=10, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': [], 
@@ -151,6 +152,7 @@ def train(train_dataset, dev_dataset, args, device):
     candidates_pools_size = 100 if train_conf['distractors_sampling'] < 0 else train_conf['distractors_sampling'] + 1
     print('candidates\' pool size: {}'.format(candidates_pools_size))
     best_loss = math.inf
+    prev_step = 0
     start_t = time.time()
     for epoch in range(args.epochs):
         ep_start = time.time()
@@ -158,8 +160,7 @@ def train(train_dataset, dev_dataset, args, device):
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
         for curr_step, (dial_ids, turns, batch, targets, targets_padding_mask) in enumerate(trainloader):
-            #step_start = time.time()
-            #print(curr_step)
+            step_start = time.time()
             response_loss = forward_step(model, 
                                         batch=batch,
                                         targets=targets,
@@ -171,13 +172,15 @@ def train(train_dataset, dev_dataset, args, device):
             response_loss.backward()
             optimizer.step()
             step_end = time.time()
-            #h_count = (step_end-step_start) /60 /60
-            #m_count = ((step_end-step_start)/60) % 60
-            #s_count = (step_end-step_start) % 60
-            #print('step {} time: {}h:{}m:{}s'.format(curr_step, round(h_count), round(m_count), round(s_count)))
-
+            h_count = (step_end-step_start) /60 /60
+            m_count = ((step_end-step_start)/60) % 60
+            s_count = (step_end-step_start) % 60
+            print('step {}, loss: {}, time: {}h:{}m:{}s'.format(curr_step+prev_step, round(response_loss.item(), 4), round(h_count), round(m_count), round(s_count)))
+            scheduler1.step()
+            #scheduler2.step(response_loss.item())
             curr_epoch_losses.append(response_loss.item())
         losses_trend['train'].append(np.mean(curr_epoch_losses))
+        prev_step += curr_step
 
         model.eval()
         curr_epoch_losses = []
@@ -207,7 +210,6 @@ def train(train_dataset, dev_dataset, args, device):
                                                                                     losses_trend['dev'][-1],
                                                                                     optimizer.param_groups[0]['lr'],
                                                                                     time_str))
-        scheduler1.step()
         #TODO uncomment
         #scheduler2.step(losses_trend['dev'][-1])
 
@@ -270,23 +272,11 @@ if __name__ == '__main__':
         type=int,
         help="Number of epochs")
     parser.add_argument(
-        "--inference_criterion",
-        type=str,
-        choices=['greedy', 'beam_search'],
-        required=True,
-        help="Response generation training mode (options: 'generation', 'retrieval')")
-    parser.add_argument(
         "--checkpoints",
         action='store_true',
         default=False,
         required=False,
         help="Flag to enable checkpoint saving for best model, logs and plots")
-    parser.add_argument(
-        "--retrieval_eval",
-        action='store_true',
-        default=False,
-        required=False,
-        help="Flag to enable retrieval evaluation")
     parser.add_argument(
         "--cuda",
         action='store_true',

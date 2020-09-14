@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 sys.path.append('.')
 
-from config import TrainConfig
+from config import special_toks
 from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 
 
@@ -31,6 +31,7 @@ class Collate():
     def collate_fn(self, batch):
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
+        utterances = [item[2] for item in batch]
         history = [item[3] for item in batch]
         focus = [item[4] for item in batch]
         actions = [item[5] for item in batch]
@@ -39,9 +40,9 @@ class Collate():
 
         # words to ids for the current utterance
         utterance_seq_ids = []
-        for item in batch:
+        for utt in utterances:
             curr_seq = []
-            for word in item[2].split():
+            for word in utt.split():
                 word_id = self.word2id[word] if word in self.word2id else self.word2id[self.unk_token]
                 if word not in self.word2id:
                     self.UNK_WORDS.add(word)
@@ -201,18 +202,19 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
     vocabulary = train_vocabulary.union(dev_vocabulary)
     vocabulary = vocabulary.union(test_vocabulary)
+    sorted_voc = [word for word in sorted(vocabulary)]
 
     word2id = {}
-    word2id[TrainConfig._PAD_TOKEN] = 0
-    word2id[TrainConfig._START_TOKEN] = 1
-    word2id[TrainConfig._END_TOKEN] = 2
-    word2id[TrainConfig._UNK_TOKEN] = 3
-    for idx, word in enumerate(vocabulary):
+    word2id[special_toks['pad_token']] = 0
+    word2id[special_toks['start_token']] = 1
+    word2id[special_toks['end_token']] = 2
+    word2id[special_toks['unk_token']] = 3
+    for idx, word in enumerate(sorted_voc):
         word2id[word] = idx+4
     np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
     print('VOCABULARY SIZE: {}'.format(len(word2id)))
 
-    metadata_ids = metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=TrainConfig._UNK_TOKEN)
+    metadata_ids = metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=special_toks['unk_token'])
     torch.save(metadata_ids, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'metadata_ids.dat'))
 
     raw_data = np.load(args.metadata_embeddings, allow_pickle=True)
@@ -220,7 +222,7 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     item2id = {}
     for idx, item in enumerate(raw_data['item_ids']):
         item2id[item] = idx
-    collate = Collate(word2id=word2id, unk_token=TrainConfig._UNK_TOKEN)
+    collate = Collate(word2id=word2id, unk_token=special_toks['unk_token'])
     # prepare DataLoader
     params = {'batch_size': 1,
             'shuffle': False,

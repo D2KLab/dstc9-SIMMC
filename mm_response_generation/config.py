@@ -9,10 +9,10 @@ class SIMMCFashionConfig():
 model_conf = {
     'dropout_prob': .3,
     'hidden_size': 300,
-    'freeze_embeddings': False,
+    'freeze_embeddings': True,
     'n_encoders': 1,
     'encoder_heads': 4,
-    'n_decoders': 4,
+    'n_decoders': 6,
     'decoder_heads': 4
 }
 

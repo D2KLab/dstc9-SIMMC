@@ -10,7 +10,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from .embednets import ItemEmbeddingNetwork, WordEmbeddingNetwork
 from .decoder import Decoder
 
-
+_MAX_INFER_LEN = 100
 
 class MMStatefulLSTM(nn.Module):
 
@@ -29,6 +29,7 @@ class MMStatefulLSTM(nn.Module):
                 n_decoders,
                 decoder_heads,
                 freeze_embeddings,
+                beam_size=None,
                 retrieval_eval=False,
                 mode='train',
                 device='cpu'):
@@ -37,6 +38,7 @@ class MMStatefulLSTM(nn.Module):
         super(MMStatefulLSTM, self).__init__()
 
         self.mode = mode
+        self.beam_size = beam_size
         self.retrieval_eval = retrieval_eval
         self.start_id = word2id[start_token]
         self.end_id = word2id[end_token]
@@ -111,6 +113,7 @@ class MMStatefulLSTM(nn.Module):
         #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
         if self.mode == 'inference':
             assert utterances.shape[0] == 1, 'Only unitary batches allowed during inference'
+            assert self.beam_size is not None, 'Beam size need to be defined during inference'
         assert utterances.shape[0] == utterances_mask.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == len(history), 'Inconsistent batch size'
         assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
@@ -173,9 +176,17 @@ class MMStatefulLSTM(nn.Module):
             return vocab_logits
         else:
             #at inference time (NOT EVAL)
-            infer_tuple = tuple()
-            gen_ids = self.beam_search(u_t_all, h_t_tilde, v_t_tilde, utterances_mask)
-            #todo here beam search
+            #pdb.set_trace()
+            self.never_ending = 0
+            dec_args = {'encoder_out': u_t_all, 'history_context': h_t_tilde, 'visual_context': v_t_tilde, 'enc_mask': utterances_mask}
+            best_dict = self.beam_search(curr_seq=[self.start_id],
+                                        curr_score=0,
+                                        dec_args=dec_args,
+                                        best_dict={'seq': [], 'score': -float('inf')},
+                                        device=curr_device)
+            #print('Never-ending generated sequences: {}'.format(self.never_ending))
+            #pdb.set_trace()
+            infer_res = (best_dict['seq'], best_dict['score'])
             if self.retrieval_eval:
                 #eval on retrieval task 
                 #build a fake batch by extenpanding the tensors
@@ -190,10 +201,37 @@ class MMStatefulLSTM(nn.Module):
                                 ]
                 #candidates_scores shape: Bx100
                 candidates_scores = self.compute_candidates_scores(candidates_pool, vocab_logits)
-                infer_tuple += (candidates_scores,)
-            return infer_tuple
+                infer_res += (candidates_scores,)
+            return infer_res
 
-
+    
+    def beam_search(self, curr_seq, curr_score, dec_args, best_dict, device):
+        #pdb.set_trace()
+        if curr_seq[-1] == self.end_id:
+            assert len(curr_seq)-1 != 0, 'Division by 0 for generated sequence {}'.format(curr_seq)
+            #discard the start_id only. The probability of END token has to be taken into account instead.
+            norm_score = curr_score/(len(curr_seq)-1)
+            if norm_score > best_dict['score']:
+                best_dict['score'], best_dict['seq'] = curr_score, curr_seq[1:].copy() #delete the start_token
+            return best_dict
+        elif len(curr_seq) > _MAX_INFER_LEN:
+            #print('Generated sequence {} beyond the maximum length of {}'.format(curr_seq, _MAX_INFER_LEN))
+            self.never_ending += 1
+            return best_dict
+        vocab_logits = self.decoder(input_batch=torch.tensor(curr_seq).unsqueeze(0).to(device), **dec_args).squeeze(0)
+        #take only the prediction for the last word
+        vocab_logits = vocab_logits[-1]
+        beam_ids = torch.argsort(vocab_logits, descending=True, dim=-1)[:self.beam_size].tolist()
+        lprobs = F.log_softmax(vocab_logits, dim=-1)
+        for curr_id in beam_ids:
+            curr_lprob = lprobs[curr_id].item()
+            best_dict = self.beam_search(curr_seq=curr_seq+[curr_id], 
+                                        curr_score=curr_score+curr_lprob, 
+                                        dec_args=dec_args, 
+                                        best_dict=best_dict, 
+                                        device=device)
+        return best_dict
+    """
     def beam_search(self, encoder_out, history_context, visual_context, enc_mask):
         _BEAM_SIZE = 2
         _MAX_INFER_LEN = 50
@@ -218,7 +256,7 @@ class MMStatefulLSTM(nn.Module):
             gen_ids = torch.cat((gen_ids, beam_ids), dim=-1)
         if n_iteration == _MAX_INFER_LEN:
             print('MAX INFER LEN REACHED !!')
-
+    """
             
 
 

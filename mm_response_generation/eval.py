@@ -4,6 +4,7 @@ import os
 import pdb
 import sys
 import time
+import string
 
 import torch
 from torch.utils.data import DataLoader
@@ -46,6 +47,7 @@ def instantiate_model(args, word2id, model_configurations, device):
                                 seed=train_conf['seed'],
                                 device=device,
                                 retrieval_eval=args.retrieval_eval,
+                                beam_size=args.beam_size,
                                 mode='inference',
                                 **special_toks,
                                 **model_configurations)
@@ -53,12 +55,14 @@ def instantiate_model(args, word2id, model_configurations, device):
         raise Exception('Model not present!')
 
 
-def create_eval_dict(dataset):
+def create_eval_dicts(dataset):
     dataset.create_id2turns()
-    eval_dict = {}
+    gen_eval_dict = {}
+    retr_eval_dict = {}
     for dial_id, num_turns in dataset.id2turns.items():
-        eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': []}
-    return eval_dict
+        gen_eval_dict[dial_id] = {'dialog_id': dial_id, 'predictions': []}
+        retr_eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': []}
+    return gen_eval_dict, retr_eval_dict
 
 
 def remove_dataparallel(load_checkpoint_path):
@@ -86,7 +90,7 @@ def move_batch_to_device(batch, device):
     #batch['seq_lengths'] = batch['seq_lengths'].to(device)
 
 
-def eval(model, test_dataset, args, save_folder, device):
+def eval(model, test_dataset, args, save_folder, id2word, device):
 
     model.eval()
     model.to(device)
@@ -98,7 +102,7 @@ def eval(model, test_dataset, args, save_folder, device):
             'num_workers': 0}
     testloader = DataLoader(test_dataset, **params, collate_fn=model.collate_fn)
 
-    eval_dict = create_eval_dict(test_dataset)
+    gen_eval_dict, retr_eval_dict = create_eval_dicts(test_dataset)
     with torch.no_grad():
         for curr_step, (dial_ids, turns, batch, candidates_pool, candidates_padding_mask) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
@@ -110,28 +114,89 @@ def eval(model, test_dataset, args, save_folder, device):
             candidates_padding_mask = candidates_padding_mask.to(device)
 
             res = model(**batch, 
-                            candidates_pool=candidates_pool,
-                            pools_padding_mask=candidates_padding_mask)
+                        candidates_pool=candidates_pool,
+                        pools_padding_mask=candidates_padding_mask)
             if args.retrieval_eval:
                 responses = res[0]
-                scores = res[1]
+                scores = res[2]
             else:
                 scores = res
 
-            #get retrieved response index in the pool
-            eval_dict[dial_id]['candidate_scores'].append(scores.squeeze(0).tolist())
+            #visualize_result(batch['utterances'][0], responses, batch['focus_items'][0], id2word)
+            words_resp = [id2word[id] for id in responses]
+            gen_resp = clean_response(words_resp)
+            gen_eval_dict[dial_id]['predictions'].append({'response': gen_resp})
+            retr_eval_dict[dial_id]['candidate_scores'].append(scores.squeeze(0).tolist())
 
-    eval_list = []
-    for key in eval_dict:
-        eval_list.append(eval_dict[key])
-    save_file = os.path.join(save_folder, 'eval_out.json')
+    retr_eval_list = []
+    gen_eval_list = []
+    for key in retr_eval_dict:
+        retr_eval_list.append(retr_eval_dict[key])
+        gen_eval_list.append(gen_eval_dict[key])
+    save_file = os.path.join(save_folder, 'eval_retr.json')
     try:
         with open(save_file, 'w+') as fp:
-            json.dump(eval_list, fp)
-        print('results saved in {}'.format(save_file))
+            json.dump(retr_eval_list, fp)
+        print('retrieval results saved in {}'.format(save_file))
     except:
         print('Error in writing the resulting JSON')
 
+    save_file = os.path.join(save_folder, 'eval_gen.json')
+    try:
+        with open(save_file, 'w+') as fp:
+            json.dump(gen_eval_list, fp)
+        print('generation results saved in {}'.format(save_file))
+    except:
+        print('Error in writing the resulting JSON')
+
+
+def clean_response(gen_resp):
+    cleaned_resp = []
+    for pos, word in enumerate(gen_resp):
+        # Mary ' -> Mary'
+        if pos > 0 and word == '\'':
+            cleaned_resp[-1] += word
+        # Mary ' s -> Mary's
+        elif pos > 0 and cleaned_resp[-1][-1] == '\'' and len(word) == 1:
+            cleaned_resp[-1] += word
+        # 2 3 -> 23 , 2. 3 -> 2.3 , $2 3 -> $23 , $2. 3 -> $2.3 , $2.3 3 -> $2.33
+        elif word.isnumeric() and pos > 0 and (cleaned_resp[-1].isnumeric()
+                                        or cleaned_resp[-1][:-1].isnumeric()
+                                        or cleaned_resp[-1][0] == '$'
+                                        or cleaned_resp[-1][-1].isnumeric()):
+            cleaned_resp[-1] += word
+        # 2 . -> 2. ,  Mary . -> Mary.
+        elif word in string.punctuation and pos > 0:
+            cleaned_resp[-1] += word
+        # $ 2 -> $2
+        elif word.isnumeric() and (pos > 0 and cleaned_resp[-1] == '$'):
+            cleaned_resp[-1] += word
+        # x x l -> xxl
+        elif len(word) == 1 and pos > 0 and cleaned_resp[-1][-1] == 'x'\
+                                        and (word == 'x' or word == 'l' or word == 'm' or word == 's'):
+            cleaned_resp[-1] += word
+        elif word == special_toks['end_token']:
+            continue
+        else:
+            cleaned_resp.append(word)
+    return ' '.join(cleaned_resp)
+
+
+def visualize_result(utt_ids, gen_ids, item_ids, id2word):
+    keys = []
+    vals = []
+    for key, val in zip(item_ids[0], item_ids[1]):
+        keys.append(' '.join([id2word[id.item()] for id in key if id != 0]))
+        vals.append(' '.join([id2word[id.item()] for id in val if id != 0]))
+    item = ['{}: {}'.format(key, val) for key, val in zip(keys, vals)]
+
+    words_request = [id2word[id.item()] for id in utt_ids if id != 0]
+    words_resp = [id2word[id] for id in gen_ids]
+    cleaned_req = clean_response(words_request)
+    cleaned_resp = clean_response(words_resp)
+    print('USER: {}'.format(cleaned_req))
+    print('GEN: {}'.format(cleaned_resp))
+    print('Item: {}'.format(item))
 
 
 if __name__ == '__main__':
@@ -180,6 +245,11 @@ if __name__ == '__main__':
         required=True,
         help="Path to metadata ids file")
     parser.add_argument(
+        "--beam_size",
+        type=int,
+        required=True,
+        help="Size of the beam for the beam search at inference time")
+    parser.add_argument(
         "--retrieval_eval",
         action='store_true',
         default=False,
@@ -198,25 +268,28 @@ if __name__ == '__main__':
     test_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids)
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 
-    eval_dict = create_eval_dict(test_dataset)
     print('EVAL DATASET: {}'.format(test_dataset))
 
     # prepare model
     word2id = torch.load(args.vocabulary)
     with open(args.model_conf) as fp:
         model_configurations = json.load(fp)
-    #pdb.set_trace()
+    id2word = {id: word for word, id in word2id.items()}
+
     model = instantiate_model(args, 
                             word2id=word2id,
                             model_configurations=model_configurations,
                             device=device)
-    #model.load_state_dict(remove_dataparallel(args.model_path))
-    model.load_state_dict(torch.load(args.model_path))
+    try:
+        #if the model was not trained with DataParallel then an exception will be raised
+        model.load_state_dict(remove_dataparallel(args.model_path))
+    except:
+        model.load_state_dict(torch.load(args.model_path))
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))
 
-    eval(model, test_dataset, args, save_folder=model_folder, device=device)
+    eval(model, test_dataset, args, save_folder=model_folder, id2word=id2word, device=device)
 
     end_t = time.time()
     m_count = ((end_t-start_t)/60) % 60

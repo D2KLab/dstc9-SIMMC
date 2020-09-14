@@ -80,16 +80,7 @@ class SIMMCDataset(Dataset):
         turn = int(turn)
 
         current_transcript = self.processed_turns[dial_id][turn]['transcript']
-
-        # extract visual objects
-        coref_map = self.id2dialog[dial_id]['dialogue_coref_map']
-        # inverted coref map: placeholder -> item_id
-        inverted_coref_map = {}
-        for key, item in coref_map.items():
-            inverted_coref_map[item] = int(key)
-        focus_id, memory_ids, db_ids = self.extract_visual_context(dial_id, turn, inverted_coref_map)
-        visual_context_dict = {'focus': focus_id, 'memory': memory_ids, 'db': db_ids}
-
+        focus_item = self.id2focus[dial_id][turn]
 
         # extract dialogue history
         history = []
@@ -104,53 +95,24 @@ class SIMMCDataset(Dataset):
             attributes = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:
                 attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
-            return_tuple = (dial_id, turn, current_transcript, history, visual_context_dict, self.id2act[dial_id][turn]['action'], attributes)
+            return_tuple = (dial_id, turn, current_transcript, history, focus_item, self.id2act[dial_id][turn]['action'], attributes)
             if isinstance(self, SIMMCDatasetForResponseGeneration,):
-                return_tuple += (self.id2actfocus[dial_id][turn],)
                 return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],)
 
             return return_tuple
 
 
-    def extract_visual_context(self, dial_id, turn, placeh2id):
-        """Returns the visual object id and placeholder for a given turn and dialogue
-
-        Args:
-            dial_id (int): dialogue id
-            turn (int): turn's number
-            placeh2id (dict): dictionary from placeholder to object id
-
-        Returns:
-            tuple: (focus_id, memory_ids, db_ids)
-        """
+    def extract_visual_context(self, dial_id):
         task_id = self.id2dialog[dial_id]['dialogue_task_id']
-        task = self.task_mapping[task_id]
-        # extract focus
-        if turn == 0:
-            focus_id = task['focus_image']
-        else:
-            #forcing object permanence. If not present in this turn, take the focus from previous
-            for t in reversed(range(turn+1)):
-                if t == 0:
-                    focus_id = task['focus_image']
-                    break
-                focus = self.id2dialog[dial_id]['dialogue'][t]['visual_objects']
-                assert len(focus.keys()) <= 1, 'More than one visual object'
-                if not len(focus.keys()):
-                    continue
-                focus = [foc for foc in focus.keys()][0]
-                focus_id = placeh2id[int(focus.split('_')[-1])]
-                break
-
-        # extract memory and database ids
-        memory_ids = []
-        db_ids = []
-        for img_id in task['memory_images']:
-            memory_ids.append(img_id)
-        for img_id in task['database_images']:
-            db_ids.append(img_id)
-
-        return focus_id, memory_ids, db_ids
+        init_focus = self.task_mapping[task_id]['focus_image']
+        focus_items = [init_focus]
+        for act_annotation in self.id2act[dial_id]:
+            #force object permanence
+            if act_annotation['action_supervision'] is None or 'focus' not in act_annotation['action_supervision']:
+                focus_items.append(focus_items[-1])
+            else:
+                focus_items.append(act_annotation['action_supervision']['focus'])
+        return focus_items
 
 
     def create_index(self, raw_data):
@@ -281,6 +243,11 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
         self.task = 'response_generation/retrieval'
         self.load_actions(actions_path)
         self.load_candidates(candidates_path)
+        self.id2focus = {}
+        for id in self.ids:
+            #for response generation the context is shifted right (response based on the item chosen by the wizard)
+            self.id2focus[id] = self.extract_visual_context(id)[1:]
+            assert len(self.id2dialog[id]['dialogue']) == len(self.id2focus[id]), 'Focus items do not match dialogue {} length'.format(id)
 
         tokenizer = WordPunctTokenizer()
 
@@ -377,7 +344,8 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
 
     def __getitem__(self, index):
-        dial_id, turn, transcript, history, visual_context, action, attributes, focus, candidates_ids = super().__getitem__(index)
+
+        dial_id, turn, transcript, history, focus, action, attributes, candidates_ids = super().__getitem__(index)
         #convert actions and attributes to english strings
         action = action.lower() if action.lower() not in self._ACT2STR else self._ACT2STR[action.lower()]
         attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
@@ -461,6 +429,11 @@ class SIMMCDatasetForActionPrediction(SIMMCDataset):
         super(SIMMCDatasetForActionPrediction, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
         self.task = 'api_call_prediction'
         self.load_actions(actions_path)
+        self.id2focus = {}
+        for id in self.ids:
+            #for action prediction do not use the item context after the last turn
+            self.id2focus[id] = self.extract_visual_context(id)[:-1]
+            assert len(self.id2dialog[id]['dialogue']) == len(self.id2focus[id]), 'Focus items do not match dialogue {} length'.format(id)
         
 
     def __getitem__(self, index):

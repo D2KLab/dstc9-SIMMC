@@ -19,5 +19,5 @@ python mm_action_prediction/train.py \
         --embeddings $GLOVE_PATH\
         --metadata_embeddings $METADATA_EMBEDDINGS\
         --batch_size 128\
-        --epochs 60\
+        --epochs 15\
         --cuda 0
