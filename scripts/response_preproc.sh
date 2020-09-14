@@ -15,4 +15,5 @@ python mm_response_generation/preprocessing.py\
             --test_folder $DEVTEST_FOLDER\
             --metadata $METADATA_PATH\
             --embeddings $EMBEDDINGS_PATH\
-            --metadata_embeddings $METADATA_EMBEDDINGS
+            --metadata_embeddings $METADATA_EMBEDDINGS\
+            --bert

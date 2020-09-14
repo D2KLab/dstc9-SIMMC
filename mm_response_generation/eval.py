@@ -295,4 +295,4 @@ if __name__ == '__main__':
     m_count = ((end_t-start_t)/60) % 60
     s_count = (end_t-start_t) % 60
 
-    print('training time: {}m:{}s'.format(round(m_count), round(s_count)))
+    print('evaluation time: {}m:{}s'.format(round(m_count), round(s_count)))

@@ -15,6 +15,7 @@ sys.path.append('.')
 
 from config import special_toks
 from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
+from transformers import BertTokenizer
 
 
 
@@ -26,6 +27,38 @@ class Collate():
     def __init__(self, word2id, unk_token):
         self.word2id = word2id
         self.unk_token = unk_token
+
+
+    def metadata2ids(self, processed_metadata, word2id, unk_token):
+        unknown_words = set()
+        metadata_ids = {}
+
+        for item_id, item in processed_metadata.items():
+            metadata_ids[int(item_id)] = []
+            for field, values in item.items():
+                curr_field = []
+                for word in field.split():
+                    if word not in word2id:
+                        unknown_words.add(word)
+                    curr_field.append(word2id[word] if word in word2id else unk_token)
+                curr_values = []
+                for value in values:
+                    curr_value = []
+                    for word in value.split():
+                        if word not in word2id:
+                            unknown_words.add(word)
+                        curr_value.append(word2id[word] if word in word2id else unk_token)
+                    curr_values.append(torch.tensor(curr_value))
+                if len(curr_values):
+                    curr_values = torch.cat(curr_values)
+                else:
+                    #insert none for field for which we do not have values
+                    curr_values = torch.tensor([word2id['none']], dtype=torch.long)
+            
+                metadata_ids[int(item_id)].append((torch.tensor(curr_field, dtype=torch.long), curr_values))
+
+        print('UNKNOWN METADATA WORDS: {}'.format(len(unknown_words)))
+        return metadata_ids
 
 
     def collate_fn(self, batch):
@@ -123,6 +156,90 @@ class Collate():
         return dial_ids, turns, batch_dict, resp_ids
 
 
+
+class BertCollate():
+    def __init__(self, pretrained_model):
+        self.tokenizer = BertTokenizer.from_pretrained(pretrained_model)
+
+
+    def metadata2ids(self, processed_metadata):
+        metadata_ids = {}
+
+        for item_id, item in processed_metadata.items():
+            metadata_ids[int(item_id)] = []
+            curr_field = []
+            for field, values in item.items():
+                curr_field = []
+                curr_str = '{}: {}'.format(field, ', '.format(values))
+                curr_field.append(self.tokenizer(curr_str)['input_ids'])
+            metadata_ids[int(item_id)].append(curr_field)
+
+        return metadata_ids
+
+
+    def collate_fn(self, batch):
+        dial_ids = [item[0] for item in batch]
+        turns = [item[1] for item in batch]
+        utterances = [item[2] for item in batch]
+        history = [item[3] for item in batch]
+        focus = [item[4] for item in batch]
+        actions = [item[5] for item in batch]
+        attributes = [item[6] for item in batch]
+        responses_pool = [item[7] for item in batch]
+
+        # words to ids for the current utterance
+        pdb.set_trace()
+        utterance_seq_ids = []
+        for utt in utterances:
+            utterance_seq_ids.append(self.tokenizer(utt, return_tensors='pt')['input_ids'])
+
+        # words to ids for the history
+        history_seq_ids = []
+        for turn, item in zip(turns, history):
+            assert len(item) == turn, 'Number of turns does not match history length'
+            curr_turn_ids = []
+            for t in range(turn):
+                concat_sentences = '{} [SEP] {}'.format(item[t][0], item[t][1])       
+                curr_turn_ids.append(self.tokenizer(concat_sentences, return_tensors='pt')['input_ids'])
+            history_seq_ids.append(curr_turn_ids)
+
+        # convert response candidates to word ids
+        resp_ids = []
+        for resps in responses_pool:
+            curr_candidate = [self.tokenizer(resp, return_tensors='pt')['input_ids'] for resp in resps]
+            resp_ids.append(curr_candidate)
+
+        #convert actions and attributes to word ids
+        act_ids = []
+        for act in actions:
+            curr_seq = []
+            # todo collapse searchdatabase and searchmemory to one single action called search
+            act_tokens = act.split() if 'search' not in act else ['search']
+            act_ids.append(self.tokenizer(act_tokens, return_tensors='pt')['input_ids'])
+        
+        attr_ids = []
+        for attrs in attributes:
+            curr_attributes = [self.tokenizer(attr, return_tensors='pt')['input_ids'] for attr in attrs]
+            attr_ids.append(curr_attributes)
+
+        assert utterance_seq_ids.shape[0] == 1, 'Only unitary batch sizes allowed'
+        assert utterance_seq_ids.shape[0] == len(dial_ids), 'Batch sizes do not match'
+        assert utterance_seq_ids.shape[0] == len(turns), 'Batch sizes do not match'
+        assert utterance_seq_ids.shape[0] == len(history_seq_ids), 'Batch sizes do not match'
+        assert utterance_seq_ids.shape[0] == len(resp_ids), 'Batch sizes do not match'
+        assert utterance_seq_ids.shape[0] == len(attr_ids), 'Batch sizes do not match'
+        assert utterance_seq_ids.shape[0] == len(focus)
+
+        batch_dict = {}
+        batch_dict['utterances'] = utterance_seq_ids
+        batch_dict['history'] = history_seq_ids
+        batch_dict['actions'] = act_ids
+        batch_dict['attributes'] = attr_ids
+        batch_dict['focus'] = focus[0] #only one focus per turn
+
+        return dial_ids, turns, batch_dict, resp_ids
+
+
 def save_data_on_file(iterator, save_path):
 
     metadata_ids = {}
@@ -161,68 +278,44 @@ def save_data_on_file(iterator, save_path):
     )
 
 
-def metadata2ids(processed_metadata, word2id, unk_token):
-    unknown_words = set()
-    metadata_ids = {}
-
-    for item_id, item in processed_metadata.items():
-        metadata_ids[int(item_id)] = []
-        for field, values in item.items():
-            curr_field = []
-            for word in field.split():
-                if word not in word2id:
-                    unknown_words.add(word)
-                curr_field.append(word2id[word] if word in word2id else unk_token)
-            curr_values = []
-            for value in values:
-                curr_value = []
-                for word in value.split():
-                    if word not in word2id:
-                        unknown_words.add(word)
-                    curr_value.append(word2id[word] if word in word2id else unk_token)
-                curr_values.append(torch.tensor(curr_value))
-            if len(curr_values):
-                curr_values = torch.cat(curr_values)
-            else:
-                #insert none for field for which we do not have values
-                curr_values = torch.tensor([word2id['none']], dtype=torch.long)
-        
-            metadata_ids[int(item_id)].append((torch.tensor(curr_field, dtype=torch.long), curr_values))
-
-    print('UNKNOWN METADATA WORDS: {}'.format(len(unknown_words)))
-    return metadata_ids
 
 
 def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
-    # prepare model's vocabulary
-    train_vocabulary = train_dataset.get_vocabulary()
-    dev_vocabulary = dev_dataset.get_vocabulary()
-    test_vocabulary = test_dataset.get_vocabulary()
+    if not args.bert:
+        # prepare model's vocabulary
+        train_vocabulary = train_dataset.get_vocabulary()
+        dev_vocabulary = dev_dataset.get_vocabulary()
+        test_vocabulary = test_dataset.get_vocabulary()
 
-    vocabulary = train_vocabulary.union(dev_vocabulary)
-    vocabulary = vocabulary.union(test_vocabulary)
-    sorted_voc = [word for word in sorted(vocabulary)]
+        vocabulary = train_vocabulary.union(dev_vocabulary)
+        vocabulary = vocabulary.union(test_vocabulary)
+        sorted_voc = [word for word in sorted(vocabulary)]
 
-    word2id = {}
-    word2id[special_toks['pad_token']] = 0
-    word2id[special_toks['start_token']] = 1
-    word2id[special_toks['end_token']] = 2
-    word2id[special_toks['unk_token']] = 3
-    for idx, word in enumerate(sorted_voc):
-        word2id[word] = idx+4
-    np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
-    print('VOCABULARY SIZE: {}'.format(len(word2id)))
-
-    metadata_ids = metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=special_toks['unk_token'])
+        word2id = {}
+        word2id[special_toks['pad_token']] = 0
+        word2id[special_toks['start_token']] = 1
+        word2id[special_toks['end_token']] = 2
+        word2id[special_toks['unk_token']] = 3
+        for idx, word in enumerate(sorted_voc):
+            word2id[word] = idx+4
+        np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
+        print('VOCABULARY SIZE: {}'.format(len(word2id)))
+        collate = Collate(word2id=word2id, unk_token=special_toks['unk_token'])
+        metadata_ids = collate.metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=special_toks['unk_token'])
+    else:
+        collate = BertCollate('bert-base-uncased')
+        metadata_ids = collate.metadata2ids(train_dataset.processed_metadata)
     torch.save(metadata_ids, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'metadata_ids.dat'))
 
+    """
     raw_data = np.load(args.metadata_embeddings, allow_pickle=True)
     raw_data = dict(raw_data.item())
     item2id = {}
     for idx, item in enumerate(raw_data['item_ids']):
         item2id[item] = idx
-    collate = Collate(word2id=word2id, unk_token=special_toks['unk_token'])
+    """
+
     # prepare DataLoader
     params = {'batch_size': 1,
             'shuffle': False,
@@ -286,6 +379,12 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to metadata embeddings file")
+    parser.add_argument(
+        "--bert",
+        action='store_true',
+        default=False,
+        required=False,
+        help="flag to use bert tokenizer for preprocessing")
 
     args = parser.parse_args()
     
