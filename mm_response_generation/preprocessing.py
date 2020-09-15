@@ -163,87 +163,101 @@ class BertCollate():
 
 
     def metadata2ids(self, processed_metadata):
-        metadata_ids = {}
+        """Each item is represented by the plain string of all its attributes
+                    'key1: val1, val2. key2: val1. ...'
+        """
 
+        id2pos = {}
+        plain_text_items = []
+        for idx, (item_id, item) in enumerate(processed_metadata.items()):
+            id2pos[int(item_id)] = idx
+            curr_item_strings = []
+            for field, values in item.items():
+                if len(values):
+                    curr_str = '{}: {}'.format(field, ', '.join(values))
+                else:
+                    curr_str = '{}: {}'.format(field, 'none')
+                curr_item_strings.append(curr_str)
+            plain_text_items.append('. '.join(curr_item_strings))
+
+        items_tensors = self.tokenizer(plain_text_items, padding='longest', return_tensors='pt')
+        res_dict = {'id2pos': id2pos, 'items_tensors': items_tensors}
+        """
         for item_id, item in processed_metadata.items():
             metadata_ids[int(item_id)] = []
             curr_field = []
             for field, values in item.items():
-                curr_field = []
                 curr_str = '{}: {}'.format(field, ', '.format(values))
                 curr_field.append(self.tokenizer(curr_str)['input_ids'])
             metadata_ids[int(item_id)].append(curr_field)
-
-        return metadata_ids
+        """
+        return res_dict
 
 
     def collate_fn(self, batch):
+
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
         utterances = [item[2] for item in batch]
-        history = [item[3] for item in batch]
-        focus = [item[4] for item in batch]
-        actions = [item[5] for item in batch]
-        attributes = [item[6] for item in batch]
-        responses_pool = [item[7] for item in batch]
+        wizard_resp = [item[3] for item in batch]
+        history = [item[4] for item in batch]
+        focus = [item[5] for item in batch]
+        actions = [item[6] for item in batch]
+        attributes = [item[7] for item in batch]
+        retr_candidates = [item[8] for item in batch]
 
-        # words to ids for the current utterance
-        pdb.set_trace()
-        utterance_seq_ids = []
-        for utt in utterances:
-            utterance_seq_ids.append(self.tokenizer(utt, return_tensors='pt')['input_ids'])
-
-        # words to ids for the history
+        #each results has three keys: 'input_ids', 'token_type_ids', 'attention_mask'
+        utterances_tensors = self.tokenizer(utterances, padding='longest', return_tensors='pt')
+        responses_tensors = self.tokenizer(wizard_resp, padding='longest', return_tensors='pt')
         history_seq_ids = []
         for turn, item in zip(turns, history):
             assert len(item) == turn, 'Number of turns does not match history length'
-            curr_turn_ids = []
-            for t in range(turn):
-                concat_sentences = '{} [SEP] {}'.format(item[t][0], item[t][1])       
-                curr_turn_ids.append(self.tokenizer(concat_sentences, return_tensors='pt')['input_ids'])
-            history_seq_ids.append(curr_turn_ids)
+            if not len(item):
+                no_history = {'input_ids': torch.zeros(utterances_tensors['input_ids'].shape[1]),
+                            'token_type_ids': torch.zeros(utterances_tensors['input_ids'].shape[1]),
+                            'attention_mask': torch.zeros(utterances_tensors['input_ids'].shape[1])}
+                history_seq_ids.append(no_history)
+                continue
+            history_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
+        actions_tensors = self.tokenizer(actions, padding='longest', return_tensors='pt')
+        attrs_seq_ids = []
+        for item in attributes:
+            if not len(item):
+                no_attr = {'input_ids': torch.zeros(utterances_tensors['input_ids'].shape[1]),
+                            'token_type_ids': torch.zeros(utterances_tensors['input_ids'].shape[1]),
+                            'attention_mask': torch.zeros(utterances_tensors['input_ids'].shape[1])}
+                attrs_seq_ids.append(no_attr)
+                continue
+            attrs_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
+        candidates_seq_ids = []
+        for item in retr_candidates:
+            candidates_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
 
-        # convert response candidates to word ids
-        resp_ids = []
-        for resps in responses_pool:
-            curr_candidate = [self.tokenizer(resp, return_tensors='pt')['input_ids'] for resp in resps]
-            resp_ids.append(curr_candidate)
+        #assert utterance_seq_ids.shape[0] == 1, 'Only unitary batch sizes allowed'
+        assert utterances_tensors['input_ids'].shape[0] == len(dial_ids), 'Batch sizes do not match'
+        assert utterances_tensors['input_ids'].shape[0] == len(turns), 'Batch sizes do not match'
+        assert utterances_tensors['input_ids'].shape[0] == responses_tensors['input_ids'].shape[0], 'Batch sizes do not match'
+        assert utterances_tensors['input_ids'].shape[0] == len(history_seq_ids), 'Batch sizes do not match'
+        assert utterances_tensors['input_ids'].shape[0] == actions_tensors['input_ids'].shape[0], 'Batch sizes do not match'
+        assert utterances_tensors['input_ids'].shape[0] == len(attrs_seq_ids)
+        assert utterances_tensors['input_ids'].shape[0] == len(candidates_seq_ids)
+        assert utterances_tensors['input_ids'].shape[0] == len(focus), 'Batch sizes do not match'
 
-        #convert actions and attributes to word ids
-        act_ids = []
-        for act in actions:
-            curr_seq = []
-            # todo collapse searchdatabase and searchmemory to one single action called search
-            act_tokens = act.split() if 'search' not in act else ['search']
-            act_ids.append(self.tokenizer(act_tokens, return_tensors='pt')['input_ids'])
-        
-        attr_ids = []
-        for attrs in attributes:
-            curr_attributes = [self.tokenizer(attr, return_tensors='pt')['input_ids'] for attr in attrs]
-            attr_ids.append(curr_attributes)
+        data_dict = {}
+        data_dict['utterances'] = utterances_tensors
+        data_dict['responses'] = responses_tensors
+        data_dict['history'] = history_seq_ids
+        data_dict['actions'] = actions_tensors
+        data_dict['attributes'] = attrs_seq_ids
+        data_dict['focus'] = focus
+        data_dict['candidates'] = candidates_seq_ids
 
-        assert utterance_seq_ids.shape[0] == 1, 'Only unitary batch sizes allowed'
-        assert utterance_seq_ids.shape[0] == len(dial_ids), 'Batch sizes do not match'
-        assert utterance_seq_ids.shape[0] == len(turns), 'Batch sizes do not match'
-        assert utterance_seq_ids.shape[0] == len(history_seq_ids), 'Batch sizes do not match'
-        assert utterance_seq_ids.shape[0] == len(resp_ids), 'Batch sizes do not match'
-        assert utterance_seq_ids.shape[0] == len(attr_ids), 'Batch sizes do not match'
-        assert utterance_seq_ids.shape[0] == len(focus)
-
-        batch_dict = {}
-        batch_dict['utterances'] = utterance_seq_ids
-        batch_dict['history'] = history_seq_ids
-        batch_dict['actions'] = act_ids
-        batch_dict['attributes'] = attr_ids
-        batch_dict['focus'] = focus[0] #only one focus per turn
-
-        return dial_ids, turns, batch_dict, resp_ids
+        return dial_ids, turns, data_dict
 
 
-def save_data_on_file(iterator, save_path):
+def save_data_on_file(loader, save_path):
 
-    metadata_ids = {}
-
+    """
     dial_id_list = []
     turn_list = []
     utterance_list = []
@@ -252,7 +266,8 @@ def save_data_on_file(iterator, save_path):
     attributes_list = []
     focus_list = []
     candidate_list = []
-    for dial_ids, turns, batch, candidates_pool in iterator:
+    
+    for dial_ids, turns, batch in iterator:
         assert len(dial_ids) == 1, 'Only unitary batches are allowed during preprocessing'
         dial_id_list.append(dial_ids[0])
         turn_list.append(turns[0])
@@ -262,17 +277,14 @@ def save_data_on_file(iterator, save_path):
         attributes_list.append(batch['attributes'][0])
         focus_list.append(batch['focus'])
         candidate_list.append(candidates_pool[0])
+    """
+    dial_ids, turns, data_dict = iter(loader).next()
     
     torch.save(
         {
-            'dial_ids': dial_id_list,
-            'turns': turn_list,
-            'utterances': utterance_list,
-            'histories': history_list,
-            'actions': actions_list,
-            'attributes': attributes_list,
-            'focus': focus_list,
-            'candidates': candidate_list 
+            'dial_ids': dial_ids,
+            'turns': turns,
+            'data_dict': data_dict,
         },
         save_path
     )
@@ -317,21 +329,21 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     """
 
     # prepare DataLoader
-    params = {'batch_size': 1,
+    params = {'batch_size': len(train_dataset),
             'shuffle': False,
             'num_workers': 0}
-    assert params['batch_size'] == 1 and not params['shuffle'], 'Keep batch size to 1 and shuffle to False to avoid problems during training'
+    assert params['batch_size'] == len(train_dataset) and not params['shuffle'], 'Keep batch size to max and shuffle to False to avoid problems during training'
     trainloader = DataLoader(train_dataset, **params, collate_fn=collate.collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate.collate_fn)
     testloader = DataLoader(test_dataset, **params, collate_fn=collate.collate_fn)
 
     start_t = time.time()
 
-    save_data_on_file(iterator=trainloader, save_path=os.path.join(args.train_folder, 'response_retrieval_data.dat'))
-    save_data_on_file(iterator=devloader, save_path=os.path.join(args.dev_folder, 'response_retrieval_data.dat'))
-    save_data_on_file(iterator=testloader, save_path=os.path.join(args.test_folder, 'response_retrieval_data.dat'))
+    save_data_on_file(loader=trainloader, save_path=os.path.join(args.train_folder, 'response_retrieval_data.dat'))
+    save_data_on_file(loader=devloader, save_path=os.path.join(args.dev_folder, 'response_retrieval_data.dat'))
+    save_data_on_file(loader=testloader, save_path=os.path.join(args.test_folder, 'response_retrieval_data.dat'))
 
-    print('UNKNOWN DATASET WORDS: {}'.format(len(collate.UNK_WORDS)))
+    #print('UNKNOWN DATASET WORDS: {}'.format(len(collate.UNK_WORDS)))
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60

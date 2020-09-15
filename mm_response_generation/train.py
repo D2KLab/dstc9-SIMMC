@@ -56,22 +56,33 @@ def plotting(epochs, losses_trend, checkpoint_dir=None):
 def move_batch_to_device(batch, device):
     batch['utterances'] = batch['utterances'].to(device)
     batch['utterances_mask'] = batch['utterances_mask'].to(device)
+    batch['utterances_tokens_type'] = batch['utterances_tokens_type'].to(device)
+    batch['responses'] = batch['responses'].to(device)
+    batch['responses_mask'] = batch['responses'].to(device)
+    batch['responses_tokens_type'] = batch['responses'].to(device)
+    batch['focus'] = batch['focus'].to(device)
+    batch['focus_mask'] = batch['focus_mask'].to(device)
+    batch['focus_tokens_type'] = batch['focus_tokens_type'].to(device)
+    """
     for h_idx in range(len(batch['history'])):
         if len(batch['history'][h_idx]):
             batch['history'][h_idx] = batch['history'][h_idx].to(device)
     for i_idx in range(len(batch['focus_items'])):
         batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
         batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
-    #batch['seq_lengths'] = batch['seq_lengths'].to(device)
+    batch['seq_lengths'] = batch['seq_lengths'].to(device)
+    """
 
 
-def forward_step(model, batch, targets, targets_padding_mask, response_criterion, device):
+def forward_step(model, batch, response_criterion, device):
     move_batch_to_device(batch, device)
-    targets = targets.to(device)
-    targets_padding_mask = targets_padding_mask.to(device)
     vocab_logits = model(**batch,
-                        candidates_pool=targets,
-                        pools_padding_mask=targets_padding_mask)
+                        history=None,
+                        actions=None,
+                        attributes=None,
+                        candidates=None,
+                        candidates_mask=None,
+                        candidates_tokens_type=None)
     #targets are shifted right by one
     shifted_targets = torch.cat((targets[:, 1:], torch.zeros((targets.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
     #pdb.set_trace()
@@ -159,12 +170,10 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch, targets, targets_padding_mask) in enumerate(trainloader):
+        for curr_step, (dial_ids, turns, batch) in enumerate(trainloader):
             step_start = time.time()
             response_loss = forward_step(model, 
                                         batch=batch,
-                                        targets=targets,
-                                        targets_padding_mask=targets_padding_mask,
                                         response_criterion=response_criterion,
                                         device=device)
             #backward
@@ -185,11 +194,9 @@ def train(train_dataset, dev_dataset, args, device):
         model.eval()
         curr_epoch_losses = []
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch, targets, targets_padding_mask) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch) in enumerate(devloader):
                 response_loss = forward_step(model, 
                                             batch=batch,
-                                            targets=targets,
-                                            targets_padding_mask=targets_padding_mask,
                                             response_criterion=response_criterion,
                                             device=device)
                 curr_epoch_losses.append(response_loss.item())

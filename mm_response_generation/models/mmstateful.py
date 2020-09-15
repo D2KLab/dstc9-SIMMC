@@ -73,8 +73,23 @@ class MMStatefulLSTM(nn.Module):
                                 end_id=self.end_id)
 
 
-    def forward(self, utterances, utterances_mask, history, actions, attributes, focus_items, 
-                candidates_pool, pools_padding_mask, seq_lengths=None):
+    def forward(self,
+                utterances,
+                utterances_mask,
+                utterances_tokens_type,
+                responses,
+                responses_mask,
+                responses_tokens_type,
+                focus,
+                focus_mask,
+                focus_tokens_type,
+                history,
+                actions,
+                attributes,
+                candidates,
+                candidates_mask,
+                candidates_tokens_type,
+                seq_lengths=None):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
             for the field name and values is a list of values where each value is a tensor of word ids.
@@ -91,6 +106,8 @@ class MMStatefulLSTM(nn.Module):
         Returns:
             [type]: [description]
         """
+        #TODO from here
+        pdb.set_trace()
         #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
         if self.mode == 'inference':
             assert utterances.shape[0] == 1, 'Only unitary batches allowed during inference'
@@ -219,27 +236,47 @@ class MMStatefulLSTM(nn.Module):
         """
         dial_ids = [item[0] for item in batch]
         turns = [item[1] for item in batch]
-        transcripts = [torch.tensor(item[2]) for item in batch]
-        history = [item[3] for item in batch]
-        actions = [item[4] for item in batch]
-        attributes = [item[5] for item in batch]
-        focus_items = [item[6] for item in batch]
-        responses_pool = [item[7] for item in batch]
+        utterances = torch.stack([item[2] for item in batch])
+        utterances_mask = torch.stack([item[3] for item in batch])
+        utterances_tokens_type = torch.stack([item[4] for item in batch])
+        responses = torch.stack([item[5] for item in batch])
+        responses_mask = torch.stack([item[6] for item in batch])
+        responses_tokens_type = torch.stack([item[7] for item in batch])
+        #history = [item[4] for item in batch]
+        #actions = torch.stack([item[5] for item in batch])
+        #attributes = [item[6] for item in batch]
+        focus = torch.stack([item[8] for item in batch])
+        focus_mask = torch.stack([item[9] for item in batch])
+        focus_tokens_type = torch.stack([item[10] for item in batch])
+        if self.retrieval_eval:
+            responses_pool = [item[5] for item in batch]
 
-        assert len(transcripts) == len(dial_ids), 'Batch sizes do not match'
-        assert len(transcripts) == len(turns), 'Batch sizes do not match'
-        assert len(transcripts) == len(history), 'Batch sizes do not match'
-        assert len(transcripts) == len(actions), 'Batch sizes do not match'
-        assert len(transcripts) == len(attributes), 'Batch sizes do not match'
-        assert len(transcripts) == len(focus_items), 'Batch sizes do not match'
-        assert len(transcripts) == len(responses_pool), 'Batch sizes do not match'
+        assert len(utterances) == len(dial_ids), 'Batch sizes do not match'
+        assert len(utterances) == len(turns), 'Batch sizes do not match'
+        #assert len(utterances) == len(history), 'Batch sizes do not match'
+        #assert len(utterances) == len(actions), 'Batch sizes do not match'
+        #assert len(utterances) == len(attributes), 'Batch sizes do not match'
+        assert len(utterances) == len(focus), 'Batch sizes do not match'
+        #if self.retrieval_eval:
+            #assert len(utterances) == len(responses_pool), 'Batch sizes do not match'
 
+        batch_dict = {}
+        batch_dict['utterances'] = utterances
+        batch_dict['utterances_mask'] = utterances_mask
+        batch_dict['utterances_tokens_type'] = utterances_tokens_type
+        batch_dict['responses'] = responses
+        batch_dict['responses_mask'] = responses_mask
+        batch_dict['responses_tokens_type'] = responses_tokens_type
+        batch_dict['focus'] = focus
+        batch_dict['focus_mask'] = focus_mask
+        batch_dict['focus_tokens_type'] = focus_tokens_type
+        """
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
-        transcripts_lengths = torch.tensor(list(map(len, transcripts)), dtype=torch.long)
-        transcripts_tensor = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
-        transcripts_padding_mask = torch.zeros((len(transcripts), transcripts_lengths.max()), dtype=torch.long)
-        for idx, (seq, seqlen) in enumerate(zip(transcripts, transcripts_lengths)):
+        transcripts_lengths = torch.tensor(list(map(len, utterances)), dtype=torch.long)
+        transcripts_tensor = torch.zeros((len(utterances), transcripts_lengths.max()), dtype=torch.long)
+        transcripts_padding_mask = torch.zeros((len(utterances), transcripts_lengths.max()), dtype=torch.long)
+        for idx, (seq, seqlen) in enumerate(zip(utterances, transcripts_lengths)):
             transcripts_tensor[idx, :seqlen] = seq.clone().detach()
             transcripts_padding_mask[idx, :seqlen] = 1
 
@@ -299,7 +336,7 @@ class MMStatefulLSTM(nn.Module):
                 curr_vals[item_idx, :batch_vlens[batch_idx][item_idx]] = v.clone().detach()
             padded_focus.append([curr_keys, curr_vals])
 
-        """
+        
         # sort instances by sequence length in descending order and order targets to keep the correspondance
         transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
         transcripts_tensor = transcripts_tensor[perm_idx]
@@ -319,7 +356,7 @@ class MMStatefulLSTM(nn.Module):
             sorted_actions.append(actions[idx])
             sorted_attributes.append(attributes[idx])
             sorted_focus_items.append(padded_focus[idx])
-        """
+        
 
         batch_dict = {}
         batch_dict['utterances'] = transcripts_tensor
@@ -329,8 +366,8 @@ class MMStatefulLSTM(nn.Module):
         batch_dict['attributes'] = attributes
         batch_dict['focus_items'] = padded_focus
         #batch_dict['seq_lengths'] = transcripts_lengths
-
-        return dial_ids, turns, batch_dict, pools_tensor, pools_padding_mask
+        """
+        return dial_ids, turns, batch_dict
 
 
     def __str__(self):

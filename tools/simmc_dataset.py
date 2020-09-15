@@ -65,7 +65,6 @@ class SIMMCDataset(Dataset):
         if self.verbose:
             print('Skipped dialogs: {}'.format(self.skipped_dialogs))
             print(' ... index created')
-        self.create_vocabulary()
 
 
     def __len__(self):
@@ -73,29 +72,27 @@ class SIMMCDataset(Dataset):
 
 
     def __getitem__(self, index):
-        # todo for the DST keep in mind that all the price values were set to 0 
-        # todo      --> need to have a mapping to the original prices for the slot detection
+
         dial_id, turn = self.transcripts[index].split('_')
         dial_id = int(dial_id)
         turn = int(turn)
 
-        current_transcript = self.processed_turns[dial_id][turn]['transcript']
-        focus_item = self.id2focus[dial_id][turn]
+        user_req = self.id2dialog[dial_id]['dialogue'][turn]['transcript']
+        wizard_resp = self.id2dialog[dial_id]['dialogue'][turn]['system_transcript']
 
         # extract dialogue history
-        history = []
-        for t in range(turn):
-            # extract textual history
-            qa = [self.processed_turns[dial_id][t]['transcript'], 
-                            self.processed_turns[dial_id][t]['system_transcript']]
-            history.append(qa)
+        turn_str = '{} [SEP] {}'
+        history = [turn_str.format(self.id2dialog[dial_id]['dialogue'][t]['transcript'],
+                                    self.id2dialog[dial_id]['dialogue'][t]['transcript'])
+                    for t in range(turn)]
 
         # dispatch data across different dataset instantiation
         if isinstance(self, SIMMCDatasetForActionPrediction,) or isinstance(self, SIMMCDatasetForResponseGeneration,):
+            focus_item = self.id2focus[dial_id][turn]
             attributes = []
             if self.id2act[dial_id][turn]['action_supervision'] is not None:
                 attributes = self.id2act[dial_id][turn]['action_supervision']['attributes']
-            return_tuple = (dial_id, turn, current_transcript, history, focus_item, self.id2act[dial_id][turn]['action'], attributes)
+            return_tuple = (dial_id, turn, user_req, wizard_resp, history, focus_item, self.id2act[dial_id][turn]['action'], attributes)
             if isinstance(self, SIMMCDatasetForResponseGeneration,):
                 return_tuple += (self.id2candidates[dial_id][turn]['retrieval_candidates'],)
 
@@ -143,45 +140,6 @@ class SIMMCDataset(Dataset):
             self.task_mapping[task['task_id']] = task
 
 
-    def create_vocabulary(self):
-        self.vocabulary = set()
-        self.processed_turns = {}
-        tokenizer = WordPunctTokenizer() 
-
-        for dial_id in self.ids:
-            self.processed_turns[dial_id] = []
-            for dial_turn in self.id2dialog[dial_id]['dialogue']:
-                self.processed_turns[dial_id].append({'transcript': '', 'system_transcript': ''})
-                processed_user = ''
-                processed_agent = ''
-
-                user_tokens = tokenizer.tokenize(dial_turn['transcript'])
-                for tok in user_tokens:
-                    cleaned_tok = self.token_clean(tok)
-                    self.add_str_to_voc(cleaned_tok)
-                    processed_user += cleaned_tok + ' '
-                agent_tokens = tokenizer.tokenize(dial_turn['system_transcript'])
-                for tok in agent_tokens:
-                    cleaned_tok = self.token_clean(tok)
-                    self.add_str_to_voc(cleaned_tok)
-                    processed_agent += cleaned_tok + ' '
-                self.processed_turns[dial_id][dial_turn['turn_idx']]['transcript'] = processed_user[:-1] #remove final space
-                self.processed_turns[dial_id][dial_turn['turn_idx']]['system_transcript'] = processed_agent[:-1] #remove final space
-
-
-    def token_clean(self, token):
-
-        if '$' not in token and '.' not in token and not token.isnumeric():
-            return token.lower()
-        else:
-            #return white space separated digits (e.g., '187' -> '1 8 7')
-            return ' '.join(token)
-
-
-    def get_vocabulary(self):
-        return self.vocabulary
-
-
     def getmetadata(self, obj_id):
         """Return metadata for the object with the specified id
 
@@ -210,11 +168,6 @@ class SIMMCDataset(Dataset):
         return self.metadata[obj_id]
 
 
-    def add_str_to_voc(self, wstring):
-        for word in wstring.split():
-            self.vocabulary.add(word)
-
-
     def __str__(self):
         return '{}_{}_{}_v{}'.format(self.domain, self.split, self.year, self.version)
 
@@ -240,7 +193,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
     def __init__(self, data_path, metadata_path, actions_path, candidates_path, verbose=True):
         super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
 
-        self.task = 'response_generation/retrieval'
+        self.task = 'response_generation'
         self.load_actions(actions_path)
         self.load_candidates(candidates_path)
         self.id2focus = {}
@@ -249,27 +202,8 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
             self.id2focus[id] = self.extract_visual_context(id)[1:]
             assert len(self.id2dialog[id]['dialogue']) == len(self.id2focus[id]), 'Focus items do not match dialogue {} length'.format(id)
 
-        tokenizer = WordPunctTokenizer()
-
-        self.processed_candidates = []
-        for candidate in self.candidates:
-            curr_candidate = ''
-            tokens = tokenizer.tokenize(candidate)
-            for tok in tokens:
-                cleaned_tok = self.token_clean(tok)
-                self.add_str_to_voc(cleaned_tok)
-                curr_candidate += cleaned_tok + ' '
-            self.processed_candidates.append(curr_candidate[:-1]) #avoid last space
-
         self.processed_metadata = {}
         self.process_metadata_items()
-
-        #add attributes and actions to vocabulary
-        for attr in self._ATTRS:
-            corrected_attr = self._ATTR2STR[attr.lower()] if attr.lower() in self._ATTR2STR else attr.lower()
-            self.add_str_to_voc(corrected_attr)
-        for _, act in self._ACT2STR.items():
-            self.add_str_to_voc(act)
 
 
     def process_metadata_items(self):
@@ -294,13 +228,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                 #field_tokens = tokenizer.tokenize(field)
                 field_tokens = re.split('_|\s', field)
                 for tok in field_tokens:
-                    """
-                    if tok not in self._ATTRS and tok != 'embellishments' and tok != 'type' and tok != 'hemlength':
-                        pdb.set_trace()
-                    """
-                    cleaned_tok = self.token_clean(tok)
-                    cleaned_tok = self._ATTR2STR[cleaned_tok] if cleaned_tok in self._ATTR2STR else cleaned_tok
-                    self.add_str_to_voc(cleaned_tok)
+                    cleaned_tok = self._ATTR2STR[tok.lower()] if tok.lower() in self._ATTR2STR else tok.lower()
                     curr_field += cleaned_tok + ' '
                 curr_field = curr_field[:-1]
                 
@@ -311,18 +239,10 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                         curr_val = ''
                         #value_tokens = tokenizer.tokenize(val)
                         value_tokens = re.split('_|\s', val)
-                        for tok in value_tokens:
-                            cleaned_tok = self.token_clean(tok)
-                            self.add_str_to_voc(cleaned_tok)
-                            curr_val += cleaned_tok + ' '
-                        proc_values.append(curr_val[:-1])
+                        proc_values.append(' '.join(value_tokens))
                 else:
                     value_tokens = re.split('_|\s', values)
-                    for tok in value_tokens:
-                        cleaned_tok = self.token_clean(tok)
-                        self.add_str_to_voc(cleaned_tok)
-                        curr_val += cleaned_tok + ' '
-                    proc_values.append(curr_val[:-1])
+                    proc_values.append(' '.join(value_tokens))
 
                 #metadata JSON files contains different samples having hemLenght field twice.
                 #   In this case just discard the one with no values.
@@ -345,13 +265,14 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
     def __getitem__(self, index):
 
-        dial_id, turn, transcript, history, focus, action, attributes, candidates_ids = super().__getitem__(index)
+        dial_id, turn, user_req, wizard_resp, history, focus, action, attributes, candidates_ids = super().__getitem__(index)
+
         #convert actions and attributes to english strings
         action = action.lower() if action.lower() not in self._ACT2STR else self._ACT2STR[action.lower()]
         attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
-        candidate_responses = [self.processed_candidates[candidate_id] for candidate_id in candidates_ids]
+        retrieval_candidates = [self.candidates[candidate_id] for candidate_id in candidates_ids]
 
-        return dial_id, turn, transcript, history, focus, action, attributes, candidate_responses
+        return dial_id, turn, user_req, wizard_resp, history, focus, action, attributes, retrieval_candidates
 
 
     def __len__(self):
