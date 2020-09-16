@@ -18,6 +18,7 @@ python mm_response_generation/train.py \
         --vocabulary $VOCABULARY\
         --embeddings $GLOVE_PATH\
         --metadata_ids $METADATA_IDS_PATH\
-        --batch_size 128\
+        --batch_size 64\
         --epochs 20\
+        --checkpoints\
         --cuda

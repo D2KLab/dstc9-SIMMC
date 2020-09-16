@@ -32,7 +32,7 @@ from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 """
 
 
-def instantiate_model(args, word2id, model_configurations, device):
+def instantiate_model(args, model_configurations, device):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 word2id=word2id,
@@ -43,7 +43,6 @@ def instantiate_model(args, word2id, model_configurations, device):
                                 freeze_embeddings=True)
     elif args.model == 'mmstateful':
         return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
-                                word2id=word2id,
                                 seed=train_conf['seed'],
                                 device=device,
                                 retrieval_eval=args.retrieval_eval,
@@ -79,15 +78,19 @@ def remove_dataparallel(load_checkpoint_path):
 
 
 def move_batch_to_device(batch, device):
-    batch['utterances'] = batch['utterances'].to(device)
-    batch['utterances_mask'] = batch['utterances_mask'].to(device)
+    for key in batch.keys():
+        if key == 'history':
+            raise Exception('Not implemented')
+        batch[key] = batch[key].to(device)
+    """
     for h_idx in range(len(batch['history'])):
         if len(batch['history'][h_idx]):
             batch['history'][h_idx] = batch['history'][h_idx].to(device)
     for i_idx in range(len(batch['focus_items'])):
         batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
         batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
-    #batch['seq_lengths'] = batch['seq_lengths'].to(device)
+    batch['seq_lengths'] = batch['seq_lengths'].to(device)
+    """
 
 
 def eval(model, test_dataset, args, save_folder, id2word, device):
@@ -104,18 +107,17 @@ def eval(model, test_dataset, args, save_folder, id2word, device):
 
     gen_eval_dict, retr_eval_dict = create_eval_dicts(test_dataset)
     with torch.no_grad():
-        for curr_step, (dial_ids, turns, batch, candidates_pool, candidates_padding_mask) in enumerate(testloader):
+        for curr_step, (dial_ids, turns, batch) in enumerate(testloader):
             assert len(dial_ids) == 1, 'Only unitary batch size is allowed during testing'
             dial_id = dial_ids[0]
             turn = turns[0]
 
             move_batch_to_device(batch, device)
-            candidates_pool = candidates_pool.to(device)
-            candidates_padding_mask = candidates_padding_mask.to(device)
 
-            res = model(**batch, 
-                        candidates_pool=candidates_pool,
-                        pools_padding_mask=candidates_padding_mask)
+            res = model(**batch,
+                        history=None,
+                        actions=None,
+                        attributes=None)
             if args.retrieval_eval:
                 responses = res[0]
                 scores = res[2]
@@ -265,7 +267,9 @@ if __name__ == '__main__':
     start_t = time.time()
 
     args = parser.parse_args()
-    test_dataset = FastDataset(dat_path=args.data, metadata_ids_path= args.metadata_ids)
+    test_dataset = FastDataset(dat_path=args.data,
+                                metadata_ids_path= args.metadata_ids,
+                                retrieval=args.retrieval_eval)
     device = torch.device('cuda:{}'.format(args.cuda) if torch.cuda.is_available() and args.cuda is not None else "cpu")
 
     print('EVAL DATASET: {}'.format(test_dataset))
@@ -276,8 +280,7 @@ if __name__ == '__main__':
         model_configurations = json.load(fp)
     id2word = {id: word for word, id in word2id.items()}
 
-    model = instantiate_model(args, 
-                            word2id=word2id,
+    model = instantiate_model(args,
                             model_configurations=model_configurations,
                             device=device)
     try:

@@ -18,7 +18,7 @@ class FastDataset(Dataset):
 
         super(FastDataset, self).__init__()
         self.data = torch.load(dat_path)
-        self.retrieval = True
+        self.retrieval = retrieval
         if not retrieval:
             self.data['data_dict'].pop('candidates', None)
         self.metadata = torch.load(metadata_ids_path)
@@ -56,14 +56,13 @@ class FastDataset(Dataset):
                     #self.data['data_dict']['actions'][index],
                     #self.data['data_dict']['attributes'][index],
                     self.metadata['items_tensors']['input_ids'][focus_pos],
-                    self.metadata['items_tensors']['token_type_ids'][focus_pos],
-                    self.metadata['items_tensors']['attention_mask'][focus_pos])
-        """
+                    self.metadata['items_tensors']['attention_mask'][focus_pos],
+                    self.metadata['items_tensors']['token_type_ids'][focus_pos])
         if self.retrieval:
             ret_tuple += (self.data['data_dict']['candidates']['input_ids'][index],
-                        self.metadata['data_dict']['candidates']['token_type_ids'][index],
-                        self.metadata['data_dict']['candidates']['attention_mask'][index])
-        """
+                        self.data['data_dict']['candidates']['attention_mask'][index],
+                        self.data['data_dict']['candidates']['token_type_ids'][index])
+
         return ret_tuple
 
 

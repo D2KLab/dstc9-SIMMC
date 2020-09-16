@@ -8,18 +8,15 @@ class SIMMCFashionConfig():
 
 model_conf = {
     'dropout_prob': .3,
-    'hidden_size': 300,
-    'freeze_embeddings': True,
-    'n_encoders': 1,
-    'encoder_heads': 4,
+    'freeze_bert': True,
     'n_decoders': 6,
-    'decoder_heads': 4
+    'decoder_heads': 6
 }
 
 special_toks = {
     'pad_token': '[PAD]',
-    'start_token': '[START]',
-    'end_token': '[END]',
+    'start_token': '[CLS]',
+    'end_token': '[SEP]',
     'unk_token': '[UNK]',
 }
 

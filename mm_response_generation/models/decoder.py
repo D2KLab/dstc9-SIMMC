@@ -28,12 +28,14 @@ class Decoder(nn.Module):
                 end_id):
         super(Decoder, self).__init__()
 
+        self.d_model = d_model
         self.start_id = start_id
         self.end_id = end_id
         self.vocab_size = vocab_size
         self.n_layers = n_layers
 
-        self.embedding_layer = TransformerEmbedding(d_model, embedding_net)
+        #self.embedding_layer = TransformerEmbedding(d_model, embedding_net)
+        self.embedding_layer = embedding_net
         self.decoder_layers = nn.ModuleList([
                     MultiAttentiveDecoder(d_model=d_model,
                                         d_enc=d_enc,
@@ -53,7 +55,13 @@ class Decoder(nn.Module):
                                         nn.Linear(d_model//4, self.vocab_size))
 
 
-    def forward(self, input_batch, encoder_out, history_context, visual_context, enc_mask, input_mask=None):
+    def forward(self, 
+                input_batch, 
+                encoder_out, 
+                #history_context,
+                #visual_context, 
+                enc_mask, 
+                input_mask=None):
         device = input_batch.device
         if input_mask is None:
             input_mask = torch.ones(input_batch.shape, dtype=torch.long).to(device)
@@ -62,16 +70,16 @@ class Decoder(nn.Module):
         assert input_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(input_mask.dim())
         assert enc_mask.dim() == 2, 'Expected tensor with 2 dimensions but got {}'.format(enc_mask.dim())
         assert input_batch.shape[0] == encoder_out.shape[0], 'Inconsistent batch size'
-        assert input_batch.shape[0] == history_context.shape[0], 'Inconsistent batch size'
-        assert input_batch.shape[0] == visual_context.shape[0], 'Inconsistent batch size'
+        #assert input_batch.shape[0] == history_context.shape[0], 'Inconsistent batch size'
+        #assert input_batch.shape[0] == visual_context.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == input_mask.shape[0], 'Inconsistent batch size'
         assert input_batch.shape[0] == enc_mask.shape[0], 'Inconsistent batch size'
         assert input_batch.shape == input_mask.shape, 'Inconsistent mask size, {} and {}'.format(input_batch.shape, input_mask.shape)
         assert encoder_out.shape[:2] == enc_mask.shape, 'Inconsistent mask size, {} and {}'.format(encoder_out.shape[:2], enc_mask.shape)
 
         assert input_batch.device == encoder_out.device, 'Different devices'
-        assert input_batch.device == history_context.device, 'Different devices'
-        assert input_batch.device == visual_context.device, 'Different devices'
+        #assert input_batch.device == history_context.device, 'Different devices'
+        #assert input_batch.device == visual_context.device, 'Different devices'
         assert input_batch.device == input_mask.device, 'Different devices'
         assert input_batch.device == enc_mask.device, 'Different devices'
         #input mask is the padding mask
@@ -83,6 +91,7 @@ class Decoder(nn.Module):
             self_attn_mask = torch.tensor((np.triu(np.ones((input_batch.shape[0], input_batch.shape[1], input_batch.shape[1])), k=1) == 0), dtype=torch.long).to(device)
             self_attn_mask &= input_mask[:, :, None]
         else:
+            #this is used during inference, where the words are given one by one (future is not present)
             self_attn_mask = torch.ones((input_batch.shape[0], input_batch.shape[1], input_batch.shape[1]))
 
         #encoder attention mask avoid 2 things:
@@ -93,13 +102,21 @@ class Decoder(nn.Module):
         enc_attn_mask = enc_attn_mask.transpose(1, 2)
         enc_attn_mask[:, :] *= input_mask[:, None, :]
         enc_attn_mask = enc_attn_mask.transpose(1, 2)
+        x = torch.zeros((input_batch.shape[0], input_batch.shape[1], self.d_model), dtype=torch.float32).to(device)
+        #todo x[:, 0] = self.embedding_layer(self.start_id)
+        for i in range(input_batch.shape[-1]):
+            curr_embs = self.embedding_layer(utterances=input_batch[:, :i+1],
+                                            utterances_mask=self_attn_mask[:, i, :i+1],
+                                            utterances_token_type=torch.zeros(input_batch[:, :i+1].shape, dtype=torch.long).to(device))
+            x[:, i] = curr_embs[:, i]
 
-        x = self.embedding_layer(input_batch)
+        #todo from here
+        #pdb.set_trace()
         for idx in range(len(self.decoder_layers)):
             x = self.decoder_layers[idx](input_embs=x,  
                                         enc_out=encoder_out,
-                                        history_context=history_context,
-                                        visual_context=visual_context,
+                                        #history_context=history_context,
+                                        #visual_context=visual_context,
                                         self_attn_mask=self_attn_mask,
                                         enc_attn_mask=enc_attn_mask)
         vocab_logits = self.out_layer(x)
@@ -137,7 +154,7 @@ class TransformerEmbedding(nn.Module):
         self.embedding_net = embedding_net
         self.d_model = self.embedding_net.embedding_dim
         self.positional_embeddings = self.init_positional(max_seq_len=150,
-                                                        emb_dim=self.d_model)
+                                                            emb_dim=self.d_model)
 
 
     def forward(self, input_seq):
@@ -177,7 +194,15 @@ class TransformerEmbedding(nn.Module):
 
 class MultiAttentiveDecoder(nn.Module):
 
-    def __init__(self, d_model, d_enc, d_context, d_k, d_v, d_f, n_heads, dropout_prob):
+    def __init__(self,
+                d_model, 
+                d_enc, 
+                d_context, 
+                d_k, 
+                d_v, 
+                d_f, 
+                n_heads, 
+                dropout_prob):
         super(MultiAttentiveDecoder, self).__init__()
 
         #multi head self attention
@@ -185,7 +210,8 @@ class MultiAttentiveDecoder(nn.Module):
         #fusion layer
         self.multi_head_self = MultiHeadSelfAttention(d_model=d_model, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
         self.multi_head_enc = MultiHeadEncoderAttention(d_model=d_model, d_enc=d_enc, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
-        self.fusion_module = FusionModule(d_model=d_model, d_context=d_context, dropout_prob=dropout_prob)
+        self.multi_head_item = MultiHeadEncoderAttention(d_model=d_model, d_enc=d_enc, d_k=d_k, d_v=d_v, n_heads=n_heads, dropout_prob=dropout_prob)
+        #self.fusion_module = FusionModule(d_model=d_model, d_context=d_context, dropout_prob=dropout_prob)
 
         self.layerNorm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(p=dropout_prob)
@@ -197,7 +223,14 @@ class MultiAttentiveDecoder(nn.Module):
 
 
 
-    def forward(self, input_embs, enc_out, history_context, visual_context, self_attn_mask, enc_attn_mask):
+    def forward(self, 
+                input_embs, 
+                enc_out, 
+                #history_context, 
+                #item_out,
+                #item_attn_mask,
+                self_attn_mask, 
+                enc_attn_mask):
 
         self_attn_out = self.multi_head_self(input_embs, self_attn_mask)
         sub_out1 = self.layerNorm(input_embs + self.dropout(self_attn_out))
@@ -205,11 +238,14 @@ class MultiAttentiveDecoder(nn.Module):
         enc_attn_out = self.multi_head_enc(sub_out1, enc_out, enc_attn_mask)
         sub_out2 = self.layerNorm(sub_out1 + self.dropout(enc_attn_out))
 
-        fusion_out = self.fusion_module(sub_out2, history_context, visual_context)
-        sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
+        #item_attn_out = self.multi_head_item(sub_out2, item_out, item_attn_mask)
+        #sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
 
-        fnn_out = self.fnn(sub_out3)
-        sub_out4 = self.layerNorm(sub_out3 + self.dropout(fnn_out))
+        #fusion_out = self.fusion_module(sub_out2, history_context, visual_context)
+        #sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
+
+        fnn_out = self.fnn(sub_out2) #todo subout3
+        sub_out4 = self.layerNorm(sub_out2 + self.dropout(fnn_out)) #todo subout3
         
         return sub_out4
 

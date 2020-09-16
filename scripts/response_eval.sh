@@ -4,7 +4,7 @@
 #export MODEL=blindstateful
 export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-09-10T18:11:05
+export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-09-16T15:27:53
 
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/vocabulary.pkl

@@ -229,18 +229,19 @@ class BertCollate():
                 attrs_seq_ids.append(no_attr)
                 continue
             attrs_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
-        candidates_seq_ids = []
-        for item in retr_candidates:
-            candidates_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
+        all_candidates = [candidate for pool in retr_candidates for candidate in pool]
+        candidates_tensors = self.tokenizer(all_candidates, padding='longest', return_tensors='pt')
+        candidates_tensors = {'input_ids': candidates_tensors['input_ids'].view(len(dial_ids), 100, -1),
+                            'token_type_ids': candidates_tensors['token_type_ids'].view(len(dial_ids), 100, -1),
+                            'attention_mask': candidates_tensors['attention_mask'].view(len(dial_ids), 100, -1)}
 
-        #assert utterance_seq_ids.shape[0] == 1, 'Only unitary batch sizes allowed'
         assert utterances_tensors['input_ids'].shape[0] == len(dial_ids), 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == len(turns), 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == responses_tensors['input_ids'].shape[0], 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == len(history_seq_ids), 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == actions_tensors['input_ids'].shape[0], 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == len(attrs_seq_ids)
-        assert utterances_tensors['input_ids'].shape[0] == len(candidates_seq_ids)
+        assert utterances_tensors['input_ids'].shape[0] == candidates_tensors['input_ids'].shape[0]
         assert utterances_tensors['input_ids'].shape[0] == len(focus), 'Batch sizes do not match'
 
         data_dict = {}
@@ -250,9 +251,10 @@ class BertCollate():
         data_dict['actions'] = actions_tensors
         data_dict['attributes'] = attrs_seq_ids
         data_dict['focus'] = focus
-        data_dict['candidates'] = candidates_seq_ids
+        data_dict['candidates'] = candidates_tensors
 
         return dial_ids, turns, data_dict
+
 
 
 def save_data_on_file(loader, save_path):
@@ -288,7 +290,6 @@ def save_data_on_file(loader, save_path):
         },
         save_path
     )
-
 
 
 

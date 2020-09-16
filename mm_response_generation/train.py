@@ -19,7 +19,7 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import DataParallelV2, Logger, plotting_loss
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0,3,4,5"  # specify which GPU(s) to be used
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -54,15 +54,10 @@ def plotting(epochs, losses_trend, checkpoint_dir=None):
 
 
 def move_batch_to_device(batch, device):
-    batch['utterances'] = batch['utterances'].to(device)
-    batch['utterances_mask'] = batch['utterances_mask'].to(device)
-    batch['utterances_tokens_type'] = batch['utterances_tokens_type'].to(device)
-    batch['responses'] = batch['responses'].to(device)
-    batch['responses_mask'] = batch['responses'].to(device)
-    batch['responses_tokens_type'] = batch['responses'].to(device)
-    batch['focus'] = batch['focus'].to(device)
-    batch['focus_mask'] = batch['focus_mask'].to(device)
-    batch['focus_tokens_type'] = batch['focus_tokens_type'].to(device)
+    for key in batch.keys():
+        if key == 'history':
+            raise Exception('Not implemented')
+        batch[key] = batch[key].to(device)
     """
     for h_idx in range(len(batch['history'])):
         if len(batch['history'][h_idx]):
@@ -82,10 +77,10 @@ def forward_step(model, batch, response_criterion, device):
                         attributes=None,
                         candidates=None,
                         candidates_mask=None,
-                        candidates_tokens_type=None)
+                        candidates_token_type=None)
     #targets are shifted right by one
+    targets = batch['responses']
     shifted_targets = torch.cat((targets[:, 1:], torch.zeros((targets.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
-    #pdb.set_trace()
     response_loss = response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
                                         shifted_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
 
@@ -154,7 +149,7 @@ def train(train_dataset, dev_dataset, args, device):
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(100, 100*5, 100)), gamma = 0.1)
     #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     #todo uncomment
-    #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=10, threshold=1e-2, cooldown=10, verbose=True)
+    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=15, threshold=1e-2, cooldown=10, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': [], 
@@ -186,7 +181,7 @@ def train(train_dataset, dev_dataset, args, device):
             s_count = (step_end-step_start) % 60
             print('step {}, loss: {}, time: {}h:{}m:{}s'.format(curr_step+prev_step, round(response_loss.item(), 4), round(h_count), round(m_count), round(s_count)))
             scheduler1.step()
-            #scheduler2.step(response_loss.item())
+            scheduler2.step(response_loss.item())
             curr_epoch_losses.append(response_loss.item())
         losses_trend['train'].append(np.mean(curr_epoch_losses))
         prev_step += curr_step

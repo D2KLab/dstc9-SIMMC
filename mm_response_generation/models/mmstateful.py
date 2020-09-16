@@ -9,6 +9,8 @@ from torch import nn
 from .embednets import ItemEmbeddingNetwork, WordEmbeddingNetwork
 from .decoder import Decoder
 from .old_encoder import SingleEncoder
+from .bert import BertEncoder
+from transformers import BertTokenizer #todo remove
 
 _MAX_INFER_LEN = 100
 
@@ -16,19 +18,15 @@ class MMStatefulLSTM(nn.Module):
 
     def __init__(self,
                 word_embeddings_path,
-                word2id,
-                pad_token,
+                pad_token, #? remove
                 start_token,
                 end_token,
-                unk_token,
+                unk_token, #? remove
                 seed,
                 dropout_prob,
-                hidden_size,
-                n_encoders,
-                encoder_heads,
                 n_decoders,
                 decoder_heads,
-                freeze_embeddings,
+                freeze_bert=False,
                 beam_size=None,
                 retrieval_eval=False,
                 mode='train',
@@ -37,37 +35,49 @@ class MMStatefulLSTM(nn.Module):
         torch.manual_seed(seed)
         super(MMStatefulLSTM, self).__init__()
 
+        if mode == 'inference':
+            assert beam_size is not None, 'Beam size need to be defined during inference'
+
         self.mode = mode
         self.beam_size = beam_size
         self.retrieval_eval = retrieval_eval
-        self.start_id = word2id[start_token]
-        self.end_id = word2id[end_token]
-        self.pad_id = word2id[pad_token]
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
+        """
         self.word_embeddings_layer = WordEmbeddingNetwork(word_embeddings_path=word_embeddings_path, 
                                                         word2id=word2id, 
                                                         pad_token=pad_token, 
                                                         unk_token=unk_token,
                                                         freeze=freeze_embeddings)
         self.emb_dim = self.word_embeddings_layer.embedding_size
+        """
+
+        self.bert = BertEncoder(pretrained='bert-base-uncased', freeze=freeze_bert)
+        self.vocab = BertTokenizer.from_pretrained('bert-base-uncased').vocab
+        self.start_id = self.vocab[start_token]
+        self.end_id = self.vocab[end_token]
+        conf = self.bert.configuration
+        self.vocab_size = conf.vocab_size
+        self.encoder_hidden_size = conf.hidden_size
+        """
         self.encoder = SingleEncoder(input_size=self.emb_dim,
                                     hidden_size=hidden_size,
                                     dropout_prob=dropout_prob,
                                     encoder_heads=encoder_heads,
                                     embedding_net=self.word_embeddings_layer)
+        """
 
         #for h heads: d_k == d_v == emb_dim/h
-        self.decoder = Decoder(d_model=self.emb_dim,
-                                d_enc=2*hidden_size,
-                                d_context=hidden_size,
-                                d_k=self.emb_dim//decoder_heads,
-                                d_v=self.emb_dim//decoder_heads,
-                                d_f=self.emb_dim//2,
+        self.decoder = Decoder(d_model=self.encoder_hidden_size,
+                                d_enc=self.encoder_hidden_size,
+                                d_context=self.encoder_hidden_size,
+                                d_k=self.encoder_hidden_size//decoder_heads,
+                                d_v=self.encoder_hidden_size//decoder_heads,
+                                d_f=self.encoder_hidden_size//2,
                                 n_layers=n_decoders,
                                 n_heads=decoder_heads,
-                                embedding_net=self.word_embeddings_layer,
-                                vocab_size=len(word2id),
+                                embedding_net=self.bert,
+                                vocab_size=self.vocab_size,#len(word2id),
                                 dropout_prob=dropout_prob,
                                 start_id=self.start_id,
                                 end_id=self.end_id)
@@ -76,19 +86,19 @@ class MMStatefulLSTM(nn.Module):
     def forward(self,
                 utterances,
                 utterances_mask,
-                utterances_tokens_type,
+                utterances_token_type,
                 responses,
                 responses_mask,
-                responses_tokens_type,
+                responses_token_type,
                 focus,
                 focus_mask,
-                focus_tokens_type,
+                focus_token_type,
                 history,
                 actions,
                 attributes,
                 candidates,
                 candidates_mask,
-                candidates_tokens_type,
+                candidates_token_type,
                 seq_lengths=None):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
@@ -106,47 +116,65 @@ class MMStatefulLSTM(nn.Module):
         Returns:
             [type]: [description]
         """
-        #TODO from here
-        pdb.set_trace()
-        #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
+        curr_device = utterances.device
         if self.mode == 'inference':
             assert utterances.shape[0] == 1, 'Only unitary batches allowed during inference'
-            assert self.beam_size is not None, 'Beam size need to be defined during inference'
+        #check batch size consistency (especially when using different gpus) and move list tensors to correct gpu
         assert utterances.shape[0] == utterances_mask.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == utterances_token_type.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == responses.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == responses_mask.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == responses_token_type.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == focus.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == focus_mask.shape[0], 'Inconstistent batch size'
+        assert utterances.shape[0] == focus_token_type.shape[0], 'Inconstistent batch size'
+        """
         assert utterances.shape[0] == len(history), 'Inconsistent batch size'
         assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
         assert utterances.shape[0] == len(attributes), 'Inconsistent batch size'
         assert utterances.shape[0] == len(focus_items), 'Inconsistent batch size'
-        assert utterances.shape[0] == candidates_pool.shape[0], 'Inconsistent batch size'
-        assert utterances.shape[0] == pools_padding_mask.shape[0], 'Inconsistent batch size'
         assert utterances.shape == utterances_mask.shape, 'Inconsistent mask size'
         assert candidates_pool.shape == pools_padding_mask.shape, 'Inconsistent mask size'
         curr_device = utterances.device
         for idx, _ in enumerate(history):
             if len(history[idx]):
                 history[idx] = history[idx].to(curr_device)
-        for idx, _ in enumerate(focus_items):
-            focus_items[idx][0] = focus_items[idx][0].to(curr_device)
-            focus_items[idx][1] = focus_items[idx][1].to(curr_device)
+        """
 
+        u_t_all = self.bert(utterances=utterances,
+                            utterances_mask=utterances_mask,
+                            utterances_token_type=utterances_token_type)
+        """
         u_t_all, v_t_tilde, h_t_tilde = self.encoder(utterances=utterances,
                                                     history=history,
-                                                    focus_items=focus_items,
+                                                    focus_items=focus,
                                                     seq_lengths=seq_lengths)
+        """
         #decoding phase
         if self.mode == 'train':
+            vocab_logits = self.decoder(input_batch=responses,
+                                        encoder_out=u_t_all,
+                                        #history_context=h_t_tilde,
+                                        #visual_context=v_t_tilde,
+                                        input_mask=responses_mask,
+                                        enc_mask=utterances_mask)
+            """
             vocab_logits = self.decoder(input_batch=candidates_pool,
                                         encoder_out=u_t_all,
                                         history_context=h_t_tilde,
                                         visual_context=v_t_tilde,
                                         input_mask=pools_padding_mask,
                                         enc_mask=utterances_mask)
+            """
             return vocab_logits
         else:
+            #todo from here
+            pdb.set_trace()
             #at inference time (NOT EVAL)
             #pdb.set_trace()
             self.never_ending = 0
-            dec_args = {'encoder_out': u_t_all, 'history_context': h_t_tilde, 'visual_context': v_t_tilde, 'enc_mask': utterances_mask}
+            dec_args = {'input_batch': responses, 'encoder_out': u_t_all, 'enc_mask': utterances_mask}
+            #dec_args = {'encoder_out': u_t_all, 'history_context': h_t_tilde, 'visual_context': v_t_tilde, 'enc_mask': utterances_mask}
             best_dict = self.beam_search(curr_seq=[self.start_id],
                                         curr_score=0,
                                         dec_args=dec_args,
@@ -160,15 +188,15 @@ class MMStatefulLSTM(nn.Module):
                 #build a fake batch by extenpanding the tensors
                 vocab_logits = [
                                     self.decoder(input_batch=pool,
-                                                encoder_out=u_t_all.expand(pool.shape[0], -1, -1),
-                                                history_context=h_t_tilde.expand(pool.shape[0], -1),
-                                                visual_context=v_t_tilde.expand(pool.shape[0], -1),
+                                                encoder_out=u_t_all.expand(candidates.shape[0], -1, -1),
+                                                #history_context=h_t_tilde.expand(pool.shape[0], -1),
+                                                #visual_context=v_t_tilde.expand(pool.shape[0], -1),
                                                 input_mask=pool_mask,
                                                 enc_mask=utterances_mask.expand(pool.shape[0], -1))
-                                    for pool, pool_mask in zip(candidates_pool, pools_padding_mask)
+                                    for pool, pool_mask in zip(candidates, candidates_mask)
                                 ]
                 #candidates_scores shape: Bx100
-                candidates_scores = self.compute_candidates_scores(candidates_pool, vocab_logits)
+                candidates_scores = self.compute_candidates_scores(candidates, vocab_logits)
                 infer_res += (candidates_scores,)
             return infer_res
 
@@ -238,38 +266,44 @@ class MMStatefulLSTM(nn.Module):
         turns = [item[1] for item in batch]
         utterances = torch.stack([item[2] for item in batch])
         utterances_mask = torch.stack([item[3] for item in batch])
-        utterances_tokens_type = torch.stack([item[4] for item in batch])
+        utterances_token_type = torch.stack([item[4] for item in batch])
         responses = torch.stack([item[5] for item in batch])
         responses_mask = torch.stack([item[6] for item in batch])
-        responses_tokens_type = torch.stack([item[7] for item in batch])
+        responses_token_type = torch.stack([item[7] for item in batch])
         #history = [item[4] for item in batch]
         #actions = torch.stack([item[5] for item in batch])
         #attributes = [item[6] for item in batch]
         focus = torch.stack([item[8] for item in batch])
         focus_mask = torch.stack([item[9] for item in batch])
-        focus_tokens_type = torch.stack([item[10] for item in batch])
+        focus_token_type = torch.stack([item[10] for item in batch])
         if self.retrieval_eval:
-            responses_pool = [item[5] for item in batch]
+            candidates = torch.stack([item[11] for item in batch])
+            candidates_mask = torch.stack([item[12] for item in batch])
+            candidates_token_type = torch.stack([item[13] for item in batch])
 
-        assert len(utterances) == len(dial_ids), 'Batch sizes do not match'
-        assert len(utterances) == len(turns), 'Batch sizes do not match'
+        assert utterances.shape[0] == len(dial_ids), 'Batch sizes do not match'
+        assert utterances.shape[0] == len(turns), 'Batch sizes do not match'
         #assert len(utterances) == len(history), 'Batch sizes do not match'
         #assert len(utterances) == len(actions), 'Batch sizes do not match'
         #assert len(utterances) == len(attributes), 'Batch sizes do not match'
-        assert len(utterances) == len(focus), 'Batch sizes do not match'
-        #if self.retrieval_eval:
-            #assert len(utterances) == len(responses_pool), 'Batch sizes do not match'
+        assert utterances.shape[0] == len(focus), 'Batch sizes do not match'
+        if self.retrieval_eval:
+            assert len(utterances) == candidates.shape[0], 'Batch sizes do not match'
 
         batch_dict = {}
         batch_dict['utterances'] = utterances
         batch_dict['utterances_mask'] = utterances_mask
-        batch_dict['utterances_tokens_type'] = utterances_tokens_type
+        batch_dict['utterances_token_type'] = utterances_token_type
         batch_dict['responses'] = responses
         batch_dict['responses_mask'] = responses_mask
-        batch_dict['responses_tokens_type'] = responses_tokens_type
+        batch_dict['responses_token_type'] = responses_token_type
         batch_dict['focus'] = focus
         batch_dict['focus_mask'] = focus_mask
-        batch_dict['focus_tokens_type'] = focus_tokens_type
+        batch_dict['focus_token_type'] = focus_token_type
+        if self.retrieval_eval:
+            batch_dict['candidates'] = candidates
+            batch_dict['candidates_mask'] = candidates_mask
+            batch_dict['candidates_token_type'] = candidates_token_type
         """
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target
