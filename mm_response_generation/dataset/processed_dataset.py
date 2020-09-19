@@ -5,8 +5,9 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.enabled = True
 
-#_DATA_PERC = 50
 
 class FastDataset(Dataset):
     """Dataset with preprocessed data for response generation subtask
@@ -25,6 +26,7 @@ class FastDataset(Dataset):
         self.dataset_name = 'SIMMC'
         self.task = 'response_retrieval'
         self.distractors_sampling = distractors_sampling
+
 
     def __getitem__(self, index):
 
@@ -78,7 +80,8 @@ class FastDataset(Dataset):
 
 
     def __len__(self):
-        #frac = int(len(self.data['utterances']) * (_DATA_PERC/100))
+        #_DATA_PERC = 25
+        #frac = int(self.data['data_dict']['utterances']['input_ids'].shape[0] * (_DATA_PERC/100))
         #return frac
         return self.data['data_dict']['utterances']['input_ids'].shape[0]
 

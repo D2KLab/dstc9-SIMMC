@@ -160,6 +160,37 @@ class Collate():
 class BertCollate():
     def __init__(self, pretrained_model):
         self.tokenizer = BertTokenizer.from_pretrained(pretrained_model)
+        self.tokenizer_vocab = self.tokenizer.vocab
+        self.bert2genid = {}
+        self.bert2genid[self.tokenizer.convert_tokens_to_ids('[PAD]')] = 0
+        self.bert2genid[self.tokenizer.convert_tokens_to_ids('[SEP]')] = 1
+        self.bert2genid[self.tokenizer.convert_tokens_to_ids('[UNK]')] = 2
+        self.avail_id = 3
+        self.id_occur = [1, 1, 1]
+
+
+    def add_tensor_ids_to_vocab(self, tensor_ids):
+        ids = [id for id in tensor_ids.view(-1).tolist()]
+        for id in ids:
+            # skip the [CLS]. Never in the generated output
+            if id == 101:
+                continue
+            if id not in self.bert2genid:
+                self.bert2genid[id] = self.avail_id
+                self.avail_id += 1
+                self.id_occur.append(1)
+            else:
+                self.id_occur[self.bert2genid[id]] += 1
+
+
+    def get_vocab_and_inv_frequencies(self):
+        #avoid frequency computation for padding
+        tot_sum = sum(self.id_occur[1:])
+        word_inv_freqs = [tot_sum/occur for occur in self.id_occur[1:]]
+        #insert 0 inverse frequency for padding
+        word_inv_freqs.insert(0, 0)
+        assert len(self.bert2genid) == len(word_inv_freqs)
+        return self.bert2genid, word_inv_freqs
 
 
     def metadata2ids(self, processed_metadata):
@@ -168,6 +199,21 @@ class BertCollate():
         """
 
         id2pos = {}
+        items_tensors = []
+        for idx, (item_id, item) in enumerate(processed_metadata.items()):
+            id2pos[int(item_id)] = idx
+            curr_item_strings = []
+            for field, values in item.items():
+                if len(values):
+                    curr_str = '{}: {}'.format(field, ', '.join(values))
+                else:
+                    curr_str = '{}: {}'.format(field, 'none')
+                curr_item_strings.append(curr_str)
+            item_tensors = self.tokenizer(curr_item_strings, padding='longest')
+            self.add_tensor_ids_to_vocab(item_tensors['input_ids'])
+            items_tensors.append(item_tensors)
+        #todo from here: adapt the collate_fn in training. Encode independently each item's (key,values) pair, concatenate the results for each single item and the pad along the batch
+        """
         plain_text_items = []
         for idx, (item_id, item) in enumerate(processed_metadata.items()):
             id2pos[int(item_id)] = idx
@@ -181,16 +227,10 @@ class BertCollate():
             plain_text_items.append('. '.join(curr_item_strings))
 
         items_tensors = self.tokenizer(plain_text_items, padding='longest', return_tensors='pt')
+        self.add_tensor_ids_to_vocab(items_tensors['input_ids'])
+        """
         res_dict = {'id2pos': id2pos, 'items_tensors': items_tensors}
-        """
-        for item_id, item in processed_metadata.items():
-            metadata_ids[int(item_id)] = []
-            curr_field = []
-            for field, values in item.items():
-                curr_str = '{}: {}'.format(field, ', '.format(values))
-                curr_field.append(self.tokenizer(curr_str)['input_ids'])
-            metadata_ids[int(item_id)].append(curr_field)
-        """
+
         return res_dict
 
 
@@ -208,7 +248,9 @@ class BertCollate():
 
         #each results has three keys: 'input_ids', 'token_type_ids', 'attention_mask'
         utterances_tensors = self.tokenizer(utterances, padding='longest', return_tensors='pt')
+        self.add_tensor_ids_to_vocab(utterances_tensors['input_ids'])
         responses_tensors = self.tokenizer(wizard_resp, padding='longest', return_tensors='pt')
+        self.add_tensor_ids_to_vocab(responses_tensors['input_ids'])
         history_seq_ids = []
         for turn, item in zip(turns, history):
             assert len(item) == turn, 'Number of turns does not match history length'
@@ -282,12 +324,13 @@ def save_data_on_file(loader, save_path):
     """
     dial_ids, turns, data_dict = iter(loader).next()
     
+    
     torch.save(
         {
             'dial_ids': dial_ids,
             'turns': turns,
             'data_dict': data_dict,
-        },
+        }, 
         save_path
     )
 
@@ -341,6 +384,9 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     start_t = time.time()
 
     save_data_on_file(loader=trainloader, save_path=os.path.join(args.train_folder, 'response_retrieval_data.dat'))
+    #save vocab and inverse word frequencies only for training data
+    vocab, inv_freqs = collate.get_vocab_and_inv_frequencies()
+    torch.save({'vocab': vocab, 'inv_freqs': torch.tensor(inv_freqs)}, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'generative_vocab.dat'))
     save_data_on_file(loader=devloader, save_path=os.path.join(args.dev_folder, 'response_retrieval_data.dat'))
     save_data_on_file(loader=testloader, save_path=os.path.join(args.test_folder, 'response_retrieval_data.dat'))
 

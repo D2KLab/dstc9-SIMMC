@@ -23,18 +23,14 @@ class Decoder(nn.Module):
                 n_heads,
                 embedding_net,
                 vocab_size,
-                dropout_prob,
-                start_id,
-                end_id):
+                dropout_prob):
         super(Decoder, self).__init__()
 
         self.d_model = d_model
-        self.start_id = start_id
-        self.end_id = end_id
         self.vocab_size = vocab_size
         self.n_layers = n_layers
 
-        #self.embedding_layer = TransformerEmbedding(d_model, embedding_net)
+        #self.embedding_layer = TransformerEmbedding(vocab_size, d_model)
         self.embedding_layer = embedding_net
         self.decoder_layers = nn.ModuleList([
                     MultiAttentiveDecoder(d_model=d_model,
@@ -48,19 +44,20 @@ class Decoder(nn.Module):
                     for _ in range(n_layers)
                 ])
 
-        self.out_layer = nn.Sequential(nn.Linear(d_model, d_model//2),
+        self.out_layer = nn.Sequential(nn.Linear(d_model, d_model),
                                         nn.ReLU(),
-                                        nn.Linear(d_model//2, d_model//4),
+                                        nn.Linear(d_model, d_model),
                                         nn.ReLU(),
-                                        nn.Linear(d_model//4, self.vocab_size))
+                                        nn.Linear(d_model, self.vocab_size))
 
 
     def forward(self, 
                 input_batch, 
                 encoder_out, 
                 #history_context,
-                #visual_context, 
-                enc_mask, 
+                visual, 
+                enc_mask,
+                visual_mask,
                 input_mask=None):
         device = input_batch.device
         if input_mask is None:
@@ -102,23 +99,35 @@ class Decoder(nn.Module):
         enc_attn_mask = enc_attn_mask.transpose(1, 2)
         enc_attn_mask[:, :] *= input_mask[:, None, :]
         enc_attn_mask = enc_attn_mask.transpose(1, 2)
+
+        visual_attn_mask = torch.zeros((input_mask.shape[0], input_mask.shape[1], visual_mask.shape[1])).to(device)
+        visual_attn_mask[:, :] = visual_mask[:, None, :]
+        visual_attn_mask = visual_attn_mask.transpose(1, 2)
+        visual_attn_mask[:, :] *= input_mask[:, None, :]
+        visual_attn_mask = visual_attn_mask.transpose(1, 2)
+        #x = self.embedding_layer(input_batch)
+
         x = torch.zeros((input_batch.shape[0], input_batch.shape[1], self.d_model), dtype=torch.float32).to(device)
         #todo x[:, 0] = self.embedding_layer(self.start_id)
         for i in range(input_batch.shape[-1]):
-            curr_embs = self.embedding_layer(utterances=input_batch[:, :i+1],
-                                            utterances_mask=self_attn_mask[:, i, :i+1],
-                                            utterances_token_type=torch.zeros(input_batch[:, :i+1].shape, dtype=torch.long).to(device))
+            curr_embs = self.embedding_layer(input=input_batch[:, :i+1],
+                                            input_mask=self_attn_mask[:, i, :i+1],
+                                            input_token_type=torch.zeros(input_batch[:, :i+1].shape, dtype=torch.long).to(device))
             x[:, i] = curr_embs[:, i]
 
         #todo from here
         #pdb.set_trace()
         for idx in range(len(self.decoder_layers)):
+            #pdb.set_trace()
             x = self.decoder_layers[idx](input_embs=x,  
                                         enc_out=encoder_out,
                                         #history_context=history_context,
-                                        #visual_context=visual_context,
+                                        visual=visual,
                                         self_attn_mask=self_attn_mask,
-                                        enc_attn_mask=enc_attn_mask)
+                                        enc_attn_mask=enc_attn_mask,
+                                        visual_attn_mask=visual_attn_mask
+                                        )
+        #pdb.set_trace()
         vocab_logits = self.out_layer(x)
         return vocab_logits
 
@@ -148,13 +157,16 @@ class Decoder(nn.Module):
 
 class TransformerEmbedding(nn.Module):
 
-    def __init__(self, d_model, embedding_net):
+    def __init__(self, vocab_size, d_model, embedding_net=None):
         super(TransformerEmbedding, self).__init__()
-        assert embedding_net.embedding_dim == d_model, 'Embedding size of {} does not match d_model of {}'.format(embedding_net.embedding_dim, d_model)
-        self.embedding_net = embedding_net
-        self.d_model = self.embedding_net.embedding_dim
-        self.positional_embeddings = self.init_positional(max_seq_len=150,
-                                                            emb_dim=self.d_model)
+        if embedding_net is not None:
+            assert embedding_net.embedding_dim == d_model, 'Embedding size of {} does not match d_model of {}'.format(embedding_net.embedding_dim, d_model)
+            self.embedding_net = embedding_net
+        else:
+            self.embedding_net = nn.Embedding(vocab_size, d_model)
+        self.d_model = d_model
+        self.positional_embeddings = self.init_positional(max_seq_len=512,
+                                                        emb_dim=d_model)
 
 
     def forward(self, input_seq):
@@ -227,8 +239,8 @@ class MultiAttentiveDecoder(nn.Module):
                 input_embs, 
                 enc_out, 
                 #history_context, 
-                #item_out,
-                #item_attn_mask,
+                visual,
+                visual_attn_mask,
                 self_attn_mask, 
                 enc_attn_mask):
 
@@ -238,14 +250,14 @@ class MultiAttentiveDecoder(nn.Module):
         enc_attn_out = self.multi_head_enc(sub_out1, enc_out, enc_attn_mask)
         sub_out2 = self.layerNorm(sub_out1 + self.dropout(enc_attn_out))
 
-        #item_attn_out = self.multi_head_item(sub_out2, item_out, item_attn_mask)
-        #sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
+        item_attn_out = self.multi_head_item(sub_out2, visual, visual_attn_mask)
+        sub_out3 = self.layerNorm(sub_out2 + self.dropout(item_attn_out))
 
         #fusion_out = self.fusion_module(sub_out2, history_context, visual_context)
         #sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
 
-        fnn_out = self.fnn(sub_out2) #todo subout3
-        sub_out4 = self.layerNorm(sub_out2 + self.dropout(fnn_out)) #todo subout3
+        fnn_out = self.fnn(sub_out3)
+        sub_out4 = self.layerNorm(sub_out3 + self.dropout(fnn_out))
         
         return sub_out4
 

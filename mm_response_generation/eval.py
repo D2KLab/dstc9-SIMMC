@@ -35,7 +35,6 @@ from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 def instantiate_model(args, model_configurations, device):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
-                                word2id=word2id,
                                 pad_token=special_toks['pad_token'],
                                 unk_token=special_toks['unk_token'],
                                 seed=train_conf['seed'],
@@ -93,6 +92,28 @@ def move_batch_to_device(batch, device):
     """
 
 
+def visualize_result(utt_ids, item_ids, id2word, gen_ids=None):
+    """
+    keys = []
+    vals = []
+    for key, val in zip(item_ids[0], item_ids[1]):
+        keys.append(' '.join([id2word[id.item()] for id in key if id != 0]))
+        vals.append(' '.join([id2word[id.item()] for id in val if id != 0]))
+    item = ['{}: {}'.format(key, val) for key, val in zip(keys, vals)]
+    """
+
+    item = [id2word[id.item()] for id in item_ids if id != 0]
+    words_request = [id2word[id.item()] for id in utt_ids if id != 0]
+    if gen_ids is not None:
+        words_resp = [id2word[id] for id in gen_ids]
+    #cleaned_req = clean_response(words_request)
+    #cleaned_resp = clean_response(words_resp)
+    print('USER: {}'.format(words_request))
+    if gen_ids is not None:
+        print('GEN: {}'.format(words_resp))
+    print('Item: {}'.format(item))
+
+
 def eval(model, test_dataset, args, save_folder, id2word, device):
 
     model.eval()
@@ -113,18 +134,20 @@ def eval(model, test_dataset, args, save_folder, id2word, device):
             turn = turns[0]
 
             move_batch_to_device(batch, device)
-
+            #visualize_result(batch['utterances'][0], batch['focus'][0], model.id2word)
             res = model(**batch,
                         history=None,
                         actions=None,
                         attributes=None)
+            pdb.set_trace()
             if args.retrieval_eval:
                 responses = res[0]
                 scores = res[2]
             else:
                 scores = res
 
-            #visualize_result(batch['utterances'][0], responses, batch['focus_items'][0], id2word)
+            visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, responses)
+            pdb.set_trace()
             words_resp = [id2word[id] for id in responses]
             gen_resp = clean_response(words_resp)
             gen_eval_dict[dial_id]['predictions'].append({'response': gen_resp})
@@ -183,22 +206,6 @@ def clean_response(gen_resp):
             cleaned_resp.append(word)
     return ' '.join(cleaned_resp)
 
-
-def visualize_result(utt_ids, gen_ids, item_ids, id2word):
-    keys = []
-    vals = []
-    for key, val in zip(item_ids[0], item_ids[1]):
-        keys.append(' '.join([id2word[id.item()] for id in key if id != 0]))
-        vals.append(' '.join([id2word[id.item()] for id in val if id != 0]))
-    item = ['{}: {}'.format(key, val) for key, val in zip(keys, vals)]
-
-    words_request = [id2word[id.item()] for id in utt_ids if id != 0]
-    words_resp = [id2word[id] for id in gen_ids]
-    cleaned_req = clean_response(words_request)
-    cleaned_resp = clean_response(words_resp)
-    print('USER: {}'.format(cleaned_req))
-    print('GEN: {}'.format(cleaned_resp))
-    print('Item: {}'.format(item))
 
 
 if __name__ == '__main__':
@@ -275,19 +282,22 @@ if __name__ == '__main__':
     print('EVAL DATASET: {}'.format(test_dataset))
 
     # prepare model
-    word2id = torch.load(args.vocabulary)
+    #word2id = torch.load(args.vocabulary)
     with open(args.model_conf) as fp:
         model_configurations = json.load(fp)
-    id2word = {id: word for word, id in word2id.items()}
 
     model = instantiate_model(args,
                             model_configurations=model_configurations,
                             device=device)
+    id2word = {id: word for word, id in model.vocab.items()}
+    model.load_state_dict(torch.load(args.model_path))
+    """
     try:
         #if the model was not trained with DataParallel then an exception will be raised
         model.load_state_dict(remove_dataparallel(args.model_path))
     except:
         model.load_state_dict(torch.load(args.model_path))
+    """
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))

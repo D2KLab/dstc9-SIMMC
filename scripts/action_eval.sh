@@ -20,7 +20,7 @@ python mm_action_prediction/eval.py \
         --data $DATASET_PATH\
         --embeddings $GLOVE_PATH\
         --metadata_embeddings $METADATA_EMBEDDINGS\
-        --cuda 0
+        --cuda 5
 
 python mm_action_prediction/utilities/action_evaluation.py \
         --action_json_path data/simmc_fashion/devtest/fashion_devtest_dials_api_calls.json\

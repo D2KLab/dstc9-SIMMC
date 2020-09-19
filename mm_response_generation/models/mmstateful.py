@@ -12,13 +12,12 @@ from .old_encoder import SingleEncoder
 from .bert import BertEncoder
 from transformers import BertTokenizer #todo remove
 
-_MAX_INFER_LEN = 100
+_MAX_INFER_LEN = 10
 
 class MMStatefulLSTM(nn.Module):
 
     def __init__(self,
-                word_embeddings_path,
-                pad_token, #? remove
+                pad_token,
                 start_token,
                 end_token,
                 unk_token, #? remove
@@ -26,6 +25,7 @@ class MMStatefulLSTM(nn.Module):
                 dropout_prob,
                 n_decoders,
                 decoder_heads,
+                out_vocab,
                 freeze_bert=False,
                 beam_size=None,
                 retrieval_eval=False,
@@ -41,6 +41,7 @@ class MMStatefulLSTM(nn.Module):
         self.mode = mode
         self.beam_size = beam_size
         self.retrieval_eval = retrieval_eval
+        self.bert2genid = out_vocab
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
         """
@@ -53,11 +54,20 @@ class MMStatefulLSTM(nn.Module):
         """
 
         self.bert = BertEncoder(pretrained='bert-base-uncased', freeze=freeze_bert)
-        self.vocab = BertTokenizer.from_pretrained('bert-base-uncased').vocab
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.vocab = self.tokenizer.vocab
+        self.id2word = {id: word for word, id in self.vocab.items()}
+        self.genid2word = {gen_id: self.tokenizer.convert_ids_to_tokens(bert_id) for bert_id, gen_id in self.bert2genid.items()}
+        #start_id only presents in input
         self.start_id = self.vocab[start_token]
-        self.end_id = self.vocab[end_token]
+        #end_id only presents in output
+        self.end_id = self.bert2genid[self.vocab[end_token]]
+        #pad_id is the same between input and ouput
+        self.pad_id = self.vocab[pad_token]
+        self.unk_id = self.vocab[unk_token] 
         conf = self.bert.configuration
-        self.vocab_size = conf.vocab_size
+        self.input_vocab_size = conf.vocab_size
+        self.output_vocab_size = len(out_vocab)
         self.encoder_hidden_size = conf.hidden_size
         """
         self.encoder = SingleEncoder(input_size=self.emb_dim,
@@ -77,10 +87,8 @@ class MMStatefulLSTM(nn.Module):
                                 n_layers=n_decoders,
                                 n_heads=decoder_heads,
                                 embedding_net=self.bert,
-                                vocab_size=self.vocab_size,#len(word2id),
-                                dropout_prob=dropout_prob,
-                                start_id=self.start_id,
-                                end_id=self.end_id)
+                                vocab_size=self.output_vocab_size,
+                                dropout_prob=dropout_prob)
 
 
     def forward(self,
@@ -96,9 +104,9 @@ class MMStatefulLSTM(nn.Module):
                 history,
                 actions,
                 attributes,
-                candidates,
-                candidates_mask,
-                candidates_token_type,
+                candidates=None,
+                candidates_mask=None,
+                candidates_token_type=None,
                 seq_lengths=None):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
@@ -128,6 +136,7 @@ class MMStatefulLSTM(nn.Module):
         assert utterances.shape[0] == focus.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == focus_mask.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == focus_token_type.shape[0], 'Inconstistent batch size'
+
         """
         assert utterances.shape[0] == len(history), 'Inconsistent batch size'
         assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
@@ -141,9 +150,12 @@ class MMStatefulLSTM(nn.Module):
                 history[idx] = history[idx].to(curr_device)
         """
 
-        u_t_all = self.bert(utterances=utterances,
-                            utterances_mask=utterances_mask,
-                            utterances_token_type=utterances_token_type)
+        u_t_all = self.bert(input=utterances,
+                            input_mask=utterances_mask,
+                            input_token_type=utterances_token_type)
+        v_t_tilde = self.bert(input=focus,
+                            input_mask=focus_mask,
+                            input_token_type=focus_token_type)
         """
         u_t_all, v_t_tilde, h_t_tilde = self.encoder(utterances=utterances,
                                                     history=history,
@@ -155,42 +167,37 @@ class MMStatefulLSTM(nn.Module):
             vocab_logits = self.decoder(input_batch=responses,
                                         encoder_out=u_t_all,
                                         #history_context=h_t_tilde,
-                                        #visual_context=v_t_tilde,
+                                        visual=v_t_tilde,
                                         input_mask=responses_mask,
-                                        enc_mask=utterances_mask)
+                                        enc_mask=utterances_mask,
+                                        visual_mask=focus_mask)
             """
-            vocab_logits = self.decoder(input_batch=candidates_pool,
-                                        encoder_out=u_t_all,
-                                        history_context=h_t_tilde,
-                                        visual_context=v_t_tilde,
-                                        input_mask=pools_padding_mask,
-                                        enc_mask=utterances_mask)
+            response_losses = self.response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
+                                                    generative_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
             """
             return vocab_logits
         else:
-            #todo from here
-            pdb.set_trace()
             #at inference time (NOT EVAL)
-            #pdb.set_trace()
             self.never_ending = 0
-            dec_args = {'input_batch': responses, 'encoder_out': u_t_all, 'enc_mask': utterances_mask}
+            dec_args = {'encoder_out': u_t_all, 'enc_mask': utterances_mask, 'visual': v_t_tilde, 'visual_mask': focus_mask}
             #dec_args = {'encoder_out': u_t_all, 'history_context': h_t_tilde, 'visual_context': v_t_tilde, 'enc_mask': utterances_mask}
             best_dict = self.beam_search(curr_seq=[self.start_id],
                                         curr_score=0,
                                         dec_args=dec_args,
                                         best_dict={'seq': [], 'score': -float('inf')},
                                         device=curr_device)
-            #print('Never-ending generated sequences: {}'.format(self.never_ending))
-            #pdb.set_trace()
+            print('Never-ending generated sequences: {}'.format(self.never_ending))
             infer_res = (best_dict['seq'], best_dict['score'])
             if self.retrieval_eval:
                 #eval on retrieval task 
-                #build a fake batch by extenpanding the tensors
+                #build a fake batch by expanding the tensors
+                #pdb.set_trace()
                 vocab_logits = [
                                     self.decoder(input_batch=pool,
-                                                encoder_out=u_t_all.expand(candidates.shape[0], -1, -1),
+                                                encoder_out=u_t_all.expand(pool.shape[0], -1, -1),
                                                 #history_context=h_t_tilde.expand(pool.shape[0], -1),
-                                                #visual_context=v_t_tilde.expand(pool.shape[0], -1),
+                                                visual=v_t_tilde.expand(pool.shape[0], -1, -1),
+                                                visual_mask=focus_mask.expand(pool.shape[0], -1),
                                                 input_mask=pool_mask,
                                                 enc_mask=utterances_mask.expand(pool.shape[0], -1))
                                     for pool, pool_mask in zip(candidates, candidates_mask)
@@ -202,17 +209,15 @@ class MMStatefulLSTM(nn.Module):
 
     
     def beam_search(self, curr_seq, curr_score, dec_args, best_dict, device):
-        #pdb.set_trace()
-        if curr_seq[-1] == self.end_id:
+        pdb.set_trace()
+        if curr_seq[-1] == self.end_id or len(curr_seq) > _MAX_INFER_LEN:
             assert len(curr_seq)-1 != 0, 'Division by 0 for generated sequence {}'.format(curr_seq)
             #discard the start_id only. The probability of END token has to be taken into account instead.
             norm_score = curr_score/(len(curr_seq)-1)
             if norm_score > best_dict['score']:
                 best_dict['score'], best_dict['seq'] = curr_score, curr_seq[1:].copy() #delete the start_token
-            return best_dict
-        elif len(curr_seq) > _MAX_INFER_LEN:
-            #print('Generated sequence {} beyond the maximum length of {}'.format(curr_seq, _MAX_INFER_LEN))
-            self.never_ending += 1
+            if len(curr_seq) > _MAX_INFER_LEN:
+                self.never_ending += 1
             return best_dict
         vocab_logits = self.decoder(input_batch=torch.tensor(curr_seq).unsqueeze(0).to(device), **dec_args).squeeze(0)
         #take only the prediction for the last word
@@ -276,7 +281,20 @@ class MMStatefulLSTM(nn.Module):
         focus = torch.stack([item[8] for item in batch])
         focus_mask = torch.stack([item[9] for item in batch])
         focus_token_type = torch.stack([item[10] for item in batch])
-        if self.retrieval_eval:
+        if self.mode == 'train':
+            #creates target by shifting and converting id to output vocabulary
+            generative_targets = torch.cat((responses[:, 1:].clone().detach(), torch.zeros((responses.shape[0], 1), dtype=torch.long)), dim=-1)
+            for batch_idx, _ in enumerate(generative_targets):
+                for id_idx, curr_id in enumerate(generative_targets[batch_idx]):
+                    if curr_id.item() == self.pad_id:
+                        continue
+                    if curr_id.item() not in self.bert2genid:
+                        #dev test contains oov tokens
+                        generative_targets[batch_idx][id_idx] = self.bert2genid[self.unk_id]
+                    else:
+                        generative_targets[batch_idx][id_idx] = self.bert2genid[curr_id.item()]
+        if self.mode == 'inference' and self.retrieval_eval:
+            #todo here compute also candidates_targets by shifting and converting to output vocab
             candidates = torch.stack([item[11] for item in batch])
             candidates_mask = torch.stack([item[12] for item in batch])
             candidates_token_type = torch.stack([item[13] for item in batch])
@@ -287,8 +305,11 @@ class MMStatefulLSTM(nn.Module):
         #assert len(utterances) == len(actions), 'Batch sizes do not match'
         #assert len(utterances) == len(attributes), 'Batch sizes do not match'
         assert utterances.shape[0] == len(focus), 'Batch sizes do not match'
-        if self.retrieval_eval:
+        if self.mode == 'train':
+            assert responses.shape == generative_targets.shape, 'Batch sizes do not match'
+        if self.mode == 'inference' and self.retrieval_eval:
             assert len(utterances) == candidates.shape[0], 'Batch sizes do not match'
+
 
         batch_dict = {}
         batch_dict['utterances'] = utterances
@@ -401,7 +422,10 @@ class MMStatefulLSTM(nn.Module):
         batch_dict['focus_items'] = padded_focus
         #batch_dict['seq_lengths'] = transcripts_lengths
         """
-        return dial_ids, turns, batch_dict
+        ret_tuple = (dial_ids, turns, batch_dict)
+        if self.mode == 'train':
+            ret_tuple += (generative_targets,)
+        return ret_tuple
 
 
     def __str__(self):

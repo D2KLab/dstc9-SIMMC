@@ -19,27 +19,27 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import DataParallelV2, Logger, plotting_loss
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0,3,4,5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0,2,3,4,5"  # specify which GPU(s) to be used
 torch.autograd.set_detect_anomaly(True)
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.enabled = True
 
 
-def instantiate_model(args, word2id, device):
+def instantiate_model(args, out_vocab, device):
 
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
-                                word2id=word2id,
                                 pad_token=special_toks['pad_token'],
                                 unk_token=special_toks['unk_token'],
                                 seed=train_conf['seed'],
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
     elif args.model == 'mmstateful':
-        return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
-                                word2id=word2id,
-                                seed=train_conf['seed'],
-                                device=device,
-                                **special_toks,
-                                **model_conf)
+        return MMStatefulLSTM(**model_conf,
+                            seed=train_conf['seed'],
+                            device=device,
+                            out_vocab=out_vocab,
+                            **special_toks)
     else:
         raise Exception('Model not present!')
 
@@ -69,8 +69,28 @@ def move_batch_to_device(batch, device):
     """
 
 
-def forward_step(model, batch, response_criterion, device):
+def visualize_output(request, responses, id2word, genid2word, vocab_logits, device):
+    shifted_targets = torch.cat((responses[:, 1:], torch.zeros((responses.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
+    rand_idx = random.randint(0, shifted_targets.shape[0]-1)
+    eff_len = shifted_targets[rand_idx][shifted_targets[rand_idx] != 0].shape[0]
+    """
+    inp = ' '.join([id2word[inp_id.item()] for inp_id in responses[rand_idx] if inp_id != vocab['[PAD]']])
+    print('input: {}'.format(inp))
+    """
+    req = ' '.join([id2word[req_id.item()] for req_id in request[rand_idx] if req_id != 0])
+    print('user: {}'.format(req))
+
+    out = ' '.join([id2word[out_id.item()] for out_id in shifted_targets[rand_idx] if out_id !=0])
+    print('wizard: {}'.format(out))
+
+    gens = torch.argmax(torch.nn.functional.softmax(vocab_logits, dim=-1), dim=-1)
+    gen = ' '.join([genid2word[gen_id.item()] for gen_id in gens[:, :eff_len][rand_idx]])
+    print('generated: {}'.format(gen))
+
+
+def forward_step(model, batch, generative_targets, response_criterion, device):
     move_batch_to_device(batch, device)
+    generative_targets = generative_targets.to(device)
     vocab_logits = model(**batch,
                         history=None,
                         actions=None,
@@ -78,18 +98,30 @@ def forward_step(model, batch, response_criterion, device):
                         candidates=None,
                         candidates_mask=None,
                         candidates_token_type=None)
-    #targets are shifted right by one
-    targets = batch['responses']
-    shifted_targets = torch.cat((targets[:, 1:], torch.zeros((targets.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
+    #keep the loss outside the forward: complex to compute the mean with a weighted loss
     response_loss = response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
-                                        shifted_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
+                                        generative_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
+    
+    p = random.randint(0, 9)
+    if p > 8:
+        try:
+            vocab = model.vocab
+            id2word = model.id2word
+            genid2word = model.genid2word
+        except:
+            vocab = model.module.vocab
+            id2word = model.module.id2word
+            genid2word = model.module.genid2word
+        visualize_output(request=batch['utterances'], responses=batch['responses'], id2word=id2word, genid2word=genid2word, vocab_logits=vocab_logits, device=device)
+
+    #pdb.set_trace()
 
     """
     # the true response is always the first in the list of candidates
     matching_targets = torch.ones(batch['utterances'].shape[0], dtype=torch.long).to(device)
     response_loss = response_criterion(matching_logits, matching_targets)
     """
-
+    #return the sum of the losses of all the GPUs
     return response_loss
 
 
@@ -111,16 +143,18 @@ def train(train_dataset, dev_dataset, args, device):
     print('TRAINING DATASET: {}'.format(train_dataset))
     print('VALIDATION DATASET: {}'.format(dev_dataset))
 
-    # prepare model's vocabulary
-    with open(args.vocabulary, 'rb') as fp:
-        vocabulary = np.load(fp, allow_pickle=True)
-        vocabulary = dict(vocabulary.item())
+    with open(args.generative_vocab, 'rb') as fp:
+        gen_vocab = dict(torch.load(fp))
+    bert2genid, inv_freqs = gen_vocab['vocab'], gen_vocab['inv_freqs']
     if args.checkpoints:
-        torch.save(vocabulary, os.path.join(checkpoint_dir, 'vocabulary.pkl'))
-    print('VOCABULARY SIZE: {}'.format(len(vocabulary)))
+        torch.save(bert2genid, os.path.join(checkpoint_dir, 'bert2genid.pkl'))
+    print('GENERATIVE VOCABULARY SIZE: {}'.format(len(bert2genid)))
 
     # prepare model
-    model = instantiate_model(args, word2id=vocabulary, device=device)
+    #todo try to normalize the weights inv_freqs/inv_freqs.sum() (the reduction=mean already normalized the loss by the sum of the weights, so it is not needed)
+    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=0, weight=inv_freqs).to(device)
+    model = instantiate_model(args, out_vocab=bert2genid, device=device)
+    vocab = model.vocab
     if args.checkpoints:
         with open(os.path.join(checkpoint_dir, 'model_conf.json'), 'w+') as fp:
             json.dump(model_conf, fp)
@@ -130,7 +164,7 @@ def train(train_dataset, dev_dataset, args, device):
     model.to(device)
     print('using {} GPU(s): {}'.format(torch.cuda.device_count(), os.environ["CUDA_VISIBLE_DEVICES"]))
     print('MODEL NAME: {}'.format(args.model))
-    print('NETWORK: {}'.format(model))
+    #print('NETWORK: {}'.format(model)) #todo uncomment
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
@@ -141,66 +175,96 @@ def train(train_dataset, dev_dataset, args, device):
     trainloader = DataLoader(train_dataset, **params, collate_fn=collate_fn)
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate_fn)
 
-    #prepare losses and optimizer
-    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=vocabulary[special_toks['pad_token']]).to(device)
-    #response_criterion = torch.nn.BCEWithLogitsLoss().to(device) #pos_weight=torch.tensor(10.)
+    #prepare optimizer
     optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
     #todo scheduler step every 100 steps
-    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(100, 100*5, 100)), gamma = 0.1)
+    #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(100, 100*5, 100)), gamma = 0.1)
     #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     #todo uncomment
-    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=15, threshold=1e-2, cooldown=10, verbose=True)
+    #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=15, threshold=1e-2, cooldown=10, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': [], 
                     'dev': []}
 
-    candidates_pools_size = 100 if train_conf['distractors_sampling'] < 0 else train_conf['distractors_sampling'] + 1
-    print('candidates\' pool size: {}'.format(candidates_pools_size))
+    #candidates_pools_size = 100 if train_conf['distractors_sampling'] < 0 else train_conf['distractors_sampling'] + 1
+    #print('candidates\' pool size: {}'.format(candidates_pools_size))
+    #accumulation_steps = 8
     best_loss = math.inf
-    prev_step = 0
+    global_step = 0
     start_t = time.time()
     for epoch in range(args.epochs):
         ep_start = time.time()
         model.train()
         curr_epoch_losses = []
-        # sorted_dial_ids, sorted_dial_turns, batch_dict, sorted_responses, sorted_distractors
-        for curr_step, (dial_ids, turns, batch) in enumerate(trainloader):
+        for batch_idx, (dial_ids, turns, batch, generative_targets) in enumerate(trainloader):
+            """
+            id2word = model.id2word
+            for req_ids in batch['utterances']:
+                req = ' '.join([id2word[req_id.item()] for req_id in req_ids if req_id != model.vocab['[PAD]']])
+                print(req)
+            for item_ids in batch['focus']:
+                item = ' '.join([id2word[item_id.item()] for item_id in item_ids if item_id != model.vocab['[PAD]']])
+                print(item)
+            """
+            global_step += 1
             step_start = time.time()
             response_loss = forward_step(model, 
                                         batch=batch,
                                         response_criterion=response_criterion,
+                                        generative_targets=generative_targets,
                                         device=device)
-            #backward
             optimizer.zero_grad()
-            response_loss.backward()
+            #averaging losses from various GPUs by dividing by the batch size
+            response_loss.mean().backward()
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             step_end = time.time()
             h_count = (step_end-step_start) /60 /60
             m_count = ((step_end-step_start)/60) % 60
             s_count = (step_end-step_start) % 60
-            print('step {}, loss: {}, time: {}h:{}m:{}s'.format(curr_step+prev_step, round(response_loss.item(), 4), round(h_count), round(m_count), round(s_count)))
-            scheduler1.step()
-            scheduler2.step(response_loss.item())
-            curr_epoch_losses.append(response_loss.item())
+            print('step {}, loss: {}, time: {}h:{}m:{}s'.format(global_step, round(response_loss.mean().item(), 4), round(h_count), round(m_count), round(s_count)))
+
+            """
+            if (batch_idx+1) % accumulation_steps == 0: 
+                optimizer.step()
+                optimizer.zero_grad()
+                #torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+                #step_end = time.time()
+                print('step {}, loss: {}'.format(global_step, round(response_loss.item()*accumulation_steps, 4)))
+                p = random.randint(0, 9)
+                if p > 8:
+                    h_count = (step_end-step_start) /60 /60
+                    m_count = ((step_end-step_start)/60) % 60
+                    s_count = (step_end-step_start) % 60
+                    print('step {}, loss: {}, time: {}h:{}m:{}s'.format(global_step, round(response_loss.mean().item(), 4), round(h_count), round(m_count), round(s_count)))
+            """
+            #scheduler1.step()
+            #scheduler2.step(response_loss.item())
+            curr_epoch_losses.append(response_loss.mean().item())
         losses_trend['train'].append(np.mean(curr_epoch_losses))
-        prev_step += curr_step
 
         model.eval()
         curr_epoch_losses = []
         with torch.no_grad(): 
-            for curr_step, (dial_ids, turns, batch) in enumerate(devloader):
+            for curr_step, (dial_ids, turns, batch, generative_targets) in enumerate(devloader):
                 response_loss = forward_step(model, 
                                             batch=batch,
                                             response_criterion=response_criterion,
+                                            generative_targets=generative_targets,
                                             device=device)
-                curr_epoch_losses.append(response_loss.item())
+                curr_epoch_losses.append(response_loss.mean().item())
         losses_trend['dev'].append(np.mean(curr_epoch_losses))
         # save checkpoint if best model
         if losses_trend['dev'][-1] < best_loss:
             best_loss = losses_trend['dev'][-1]
             if args.checkpoints:
-                torch.save(model.cpu().state_dict(), os.path.join(checkpoint_dir, 'state_dict.pt'))
+                try:
+                    state_dict = model.cpu().module.state_dict()
+                except AttributeError:
+                    state_dict = model.cpu().state_dict()
+                torch.save(state_dict, os.path.join(checkpoint_dir, 'state_dict.pt'))
+                #torch.save(model.cpu().state_dict(), os.path.join(checkpoint_dir, 'state_dict.pt'))
             model.to(device)
         ep_end = time.time()
         ep_h_count = (ep_end-ep_start) /60 /60
@@ -249,20 +313,15 @@ if __name__ == '__main__':
         required=True,
         help="Path to preprocessed eval data file .dat")
     parser.add_argument(
-        "--vocabulary",
-        type=str,
-        required=True,
-        help="Path to vocabulary file")
-    parser.add_argument(
         "--metadata_ids",
         type=str,
         required=True,
         help="Path to metadata ids file")
     parser.add_argument(
-        "--embeddings",
+        "--generative_vocab",
         type=str,
         required=True,
-        help="Path to embeddings file")
+        help="Path to generative vocabulary file")
     parser.add_argument(
         "--batch_size",
         required=True,

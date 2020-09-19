@@ -16,8 +16,8 @@ class BertEncoder(nn.Module):
             for p in self.bert.parameters():
                 p.requires_grad = False
 
-    def forward(self, utterances, utterances_mask, utterances_token_type):
-        out_all, _ = self.bert(input_ids=utterances,
-                        attention_mask=utterances_mask,
-                        token_type_ids=utterances_token_type)
+    def forward(self, input, input_mask, input_token_type):
+        out_all, _ = self.bert(input_ids=input,
+                        attention_mask=input_mask,
+                        token_type_ids=input_token_type)
         return out_all
