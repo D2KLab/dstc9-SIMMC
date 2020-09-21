@@ -12,7 +12,7 @@ from .old_encoder import SingleEncoder
 from .bert import BertEncoder
 from transformers import BertTokenizer #todo remove
 
-_MAX_INFER_LEN = 10
+_MAX_INFER_LEN = 5
 
 class MMStatefulLSTM(nn.Module):
 
@@ -58,6 +58,7 @@ class MMStatefulLSTM(nn.Module):
         self.vocab = self.tokenizer.vocab
         self.id2word = {id: word for word, id in self.vocab.items()}
         self.genid2word = {gen_id: self.tokenizer.convert_ids_to_tokens(bert_id) for bert_id, gen_id in self.bert2genid.items()}
+        self.genid2bertid = {id: word for word, id in self.bert2genid.items()}
         #start_id only presents in input
         self.start_id = self.vocab[start_token]
         #end_id only presents in output
@@ -87,7 +88,8 @@ class MMStatefulLSTM(nn.Module):
                                 n_layers=n_decoders,
                                 n_heads=decoder_heads,
                                 embedding_net=self.bert,
-                                vocab_size=self.output_vocab_size,
+                                input_vocab_size=self.input_vocab_size,
+                                out_vocab_size=self.output_vocab_size,
                                 dropout_prob=dropout_prob)
 
 
@@ -107,6 +109,7 @@ class MMStatefulLSTM(nn.Module):
                 candidates=None,
                 candidates_mask=None,
                 candidates_token_type=None,
+                candidates_targets=None,
                 seq_lengths=None):
         """The visual context is a list of visual contexts (a batch). Each visual context is, in turn, a list
             of items. Each item is a list of (key, values) pairs, where key is a tensor containing the word ids
@@ -136,6 +139,8 @@ class MMStatefulLSTM(nn.Module):
         assert utterances.shape[0] == focus.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == focus_mask.shape[0], 'Inconstistent batch size'
         assert utterances.shape[0] == focus_token_type.shape[0], 'Inconstistent batch size'
+        if self.retrieval_eval:
+            assert candidates_targets is not None, 'Candidates have to be specified with retrieval_eval set to True'
 
         """
         assert utterances.shape[0] == len(history), 'Inconsistent batch size'
@@ -186,8 +191,9 @@ class MMStatefulLSTM(nn.Module):
                                         dec_args=dec_args,
                                         best_dict={'seq': [], 'score': -float('inf')},
                                         device=curr_device)
-            print('Never-ending generated sequences: {}'.format(self.never_ending))
-            infer_res = (best_dict['seq'], best_dict['score'])
+            best_dict['string'] = self.tokenizer.decode([self.genid2bertid[id] for id in best_dict['seq']])
+            #print('Never-ending generated sequences: {}'.format(self.never_ending))
+            infer_res = (best_dict,)
             if self.retrieval_eval:
                 #eval on retrieval task 
                 #build a fake batch by expanding the tensors
@@ -203,13 +209,13 @@ class MMStatefulLSTM(nn.Module):
                                     for pool, pool_mask in zip(candidates, candidates_mask)
                                 ]
                 #candidates_scores shape: Bx100
-                candidates_scores = self.compute_candidates_scores(candidates, vocab_logits)
+                candidates_scores = self.compute_candidates_scores(candidates_targets, vocab_logits)
                 infer_res += (candidates_scores,)
             return infer_res
 
     
     def beam_search(self, curr_seq, curr_score, dec_args, best_dict, device):
-        pdb.set_trace()
+        #pdb.set_trace()
         if curr_seq[-1] == self.end_id or len(curr_seq) > _MAX_INFER_LEN:
             assert len(curr_seq)-1 != 0, 'Division by 0 for generated sequence {}'.format(curr_seq)
             #discard the start_id only. The probability of END token has to be taken into account instead.
@@ -234,12 +240,12 @@ class MMStatefulLSTM(nn.Module):
         return best_dict
 
 
-    def compute_candidates_scores(self, candidates_pools, vocab_logits):
+    def compute_candidates_scores(self, candidates_targets, vocab_logits):
         """The score of each candidate is the sum of the log-likelihood of each word, normalized by its length.
         The score will be a negative value, longer sequences will be penalized without the normalization by length.
         """
-        scores = torch.zeros(candidates_pools.shape[:2])
-        for batch_idx, (pool_ids, pool_logits) in enumerate(zip(candidates_pools[:, :, 1:], vocab_logits)):
+        scores = torch.zeros(candidates_targets.shape[:2])
+        for batch_idx, (pool_ids, pool_logits) in enumerate(zip(candidates_targets, vocab_logits)):
             pool_lprobs = F.log_softmax(pool_logits, dim=-1)
             for sentence_idx, (candidate_ids, candidate_lprobs) in enumerate(zip(pool_ids, pool_lprobs)):
                 curr_lprob = []
@@ -294,11 +300,20 @@ class MMStatefulLSTM(nn.Module):
                     else:
                         generative_targets[batch_idx][id_idx] = self.bert2genid[curr_id.item()]
         if self.mode == 'inference' and self.retrieval_eval:
-            #todo here compute also candidates_targets by shifting and converting to output vocab
             candidates = torch.stack([item[11] for item in batch])
             candidates_mask = torch.stack([item[12] for item in batch])
             candidates_token_type = torch.stack([item[13] for item in batch])
 
+            candidates_targets = torch.cat((candidates[:, :, 1:].clone().detach(), torch.zeros((responses.shape[0], 100, 1), dtype=torch.long)), dim=-1)
+            for batch_idx, _ in enumerate(candidates_targets):
+                for pool_idx, curr_pool in enumerate(candidates_targets[batch_idx]):
+                    for id_idx, curr_id in enumerate(candidates_targets[batch_idx][pool_idx]):
+                        if curr_id.item() == self.pad_id:
+                            continue
+                        if curr_id.item() not in self.bert2genid:
+                            candidates_targets[batch_idx][pool_idx][id_idx] = self.bert2genid[self.unk_id]
+                        else:
+                            candidates_targets[batch_idx][pool_idx][id_idx] = self.bert2genid[curr_id.item()]
         assert utterances.shape[0] == len(dial_ids), 'Batch sizes do not match'
         assert utterances.shape[0] == len(turns), 'Batch sizes do not match'
         #assert len(utterances) == len(history), 'Batch sizes do not match'
@@ -325,6 +340,7 @@ class MMStatefulLSTM(nn.Module):
             batch_dict['candidates'] = candidates
             batch_dict['candidates_mask'] = candidates_mask
             batch_dict['candidates_token_type'] = candidates_token_type
+            batch_dict['candidates_targets'] = candidates_targets
         """
         # reorder the sequences from the longest one to the shortest one.
         # keep the correspondance with the target

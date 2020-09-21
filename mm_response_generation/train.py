@@ -19,7 +19,7 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import DataParallelV2, Logger, plotting_loss
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0,2,3,4,5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0,3,5"  # specify which GPU(s) to be used
 torch.autograd.set_detect_anomaly(True)
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.enabled = True
@@ -152,7 +152,8 @@ def train(train_dataset, dev_dataset, args, device):
 
     # prepare model
     #todo try to normalize the weights inv_freqs/inv_freqs.sum() (the reduction=mean already normalized the loss by the sum of the weights, so it is not needed)
-    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=0, weight=inv_freqs).to(device)
+    #response_criterion = torch.nn.CrossEntropyLoss(ignore_index=0, weight=inv_freqs/inv_freqs.sum()).to(device)
+    response_criterion = torch.nn.CrossEntropyLoss(ignore_index=0).to(device)
     model = instantiate_model(args, out_vocab=bert2genid, device=device)
     vocab = model.vocab
     if args.checkpoints:
@@ -176,9 +177,10 @@ def train(train_dataset, dev_dataset, args, device):
     devloader = DataLoader(dev_dataset, **params, collate_fn=collate_fn)
 
     #prepare optimizer
+    #optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'])
     optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
     #todo scheduler step every 100 steps
-    #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(100, 100*5, 100)), gamma = 0.1)
+    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(500, 500*5, 100)), gamma = 0.1)
     #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
     #todo uncomment
     #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=15, threshold=1e-2, cooldown=10, verbose=True)

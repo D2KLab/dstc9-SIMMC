@@ -32,7 +32,7 @@ from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 """
 
 
-def instantiate_model(args, model_configurations, device):
+def instantiate_model(args, model_configurations, out_vocab, device):
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 pad_token=special_toks['pad_token'],
@@ -41,14 +41,15 @@ def instantiate_model(args, model_configurations, device):
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
     elif args.model == 'mmstateful':
-        return MMStatefulLSTM(word_embeddings_path=args.embeddings, 
+        return MMStatefulLSTM(**model_configurations,
                                 seed=train_conf['seed'],
                                 device=device,
+                                out_vocab=out_vocab,
                                 retrieval_eval=args.retrieval_eval,
                                 beam_size=args.beam_size,
                                 mode='inference',
                                 **special_toks,
-                                **model_configurations)
+                                )
     else:
         raise Exception('Model not present!')
 
@@ -114,7 +115,7 @@ def visualize_result(utt_ids, item_ids, id2word, gen_ids=None):
     print('Item: {}'.format(item))
 
 
-def eval(model, test_dataset, args, save_folder, id2word, device):
+def eval(model, test_dataset, args, save_folder, device):
 
     model.eval()
     model.to(device)
@@ -139,18 +140,12 @@ def eval(model, test_dataset, args, save_folder, id2word, device):
                         history=None,
                         actions=None,
                         attributes=None)
-            pdb.set_trace()
+            response = res[0]['string']
             if args.retrieval_eval:
-                responses = res[0]
-                scores = res[2]
-            else:
-                scores = res
+                scores = res[1]
 
-            visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, responses)
-            pdb.set_trace()
-            words_resp = [id2word[id] for id in responses]
-            gen_resp = clean_response(words_resp)
-            gen_eval_dict[dial_id]['predictions'].append({'response': gen_resp})
+            #visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, responses)
+            gen_eval_dict[dial_id]['predictions'].append({'response': response})
             retr_eval_dict[dial_id]['candidate_scores'].append(scores.squeeze(0).tolist())
 
     retr_eval_list = []
@@ -175,38 +170,6 @@ def eval(model, test_dataset, args, save_folder, id2word, device):
         print('Error in writing the resulting JSON')
 
 
-def clean_response(gen_resp):
-    cleaned_resp = []
-    for pos, word in enumerate(gen_resp):
-        # Mary ' -> Mary'
-        if pos > 0 and word == '\'':
-            cleaned_resp[-1] += word
-        # Mary ' s -> Mary's
-        elif pos > 0 and cleaned_resp[-1][-1] == '\'' and len(word) == 1:
-            cleaned_resp[-1] += word
-        # 2 3 -> 23 , 2. 3 -> 2.3 , $2 3 -> $23 , $2. 3 -> $2.3 , $2.3 3 -> $2.33
-        elif word.isnumeric() and pos > 0 and (cleaned_resp[-1].isnumeric()
-                                        or cleaned_resp[-1][:-1].isnumeric()
-                                        or cleaned_resp[-1][0] == '$'
-                                        or cleaned_resp[-1][-1].isnumeric()):
-            cleaned_resp[-1] += word
-        # 2 . -> 2. ,  Mary . -> Mary.
-        elif word in string.punctuation and pos > 0:
-            cleaned_resp[-1] += word
-        # $ 2 -> $2
-        elif word.isnumeric() and (pos > 0 and cleaned_resp[-1] == '$'):
-            cleaned_resp[-1] += word
-        # x x l -> xxl
-        elif len(word) == 1 and pos > 0 and cleaned_resp[-1][-1] == 'x'\
-                                        and (word == 'x' or word == 'l' or word == 'm' or word == 's'):
-            cleaned_resp[-1] += word
-        elif word == special_toks['end_token']:
-            continue
-        else:
-            cleaned_resp.append(word)
-    return ' '.join(cleaned_resp)
-
-
 
 if __name__ == '__main__':
     #TODO make "infer": dataset with unknown labels (modify the dataset class)
@@ -225,17 +188,17 @@ if __name__ == '__main__':
         required=True,
         help="Path to the weights of the model")
     parser.add_argument(
-        "--vocabulary",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to the vocabulary pickle file")
-    parser.add_argument(
         "--model_conf",
         default=None,
         type=str,
         required=True,
-        help="Path to the model configuration JSON file")     
+        help="Path to the model configuration JSON file")
+    parser.add_argument(
+        "--vocabulary",
+        default=None,
+        type=str,
+        required=True,
+        help="Path to output vocabulary for the model")     
     parser.add_argument(
         "--data",
         default=None,
@@ -285,11 +248,13 @@ if __name__ == '__main__':
     #word2id = torch.load(args.vocabulary)
     with open(args.model_conf) as fp:
         model_configurations = json.load(fp)
+    with open(args.vocabulary, 'rb') as fp:
+        bert2genid = torch.load(fp)
 
     model = instantiate_model(args,
                             model_configurations=model_configurations,
+                            out_vocab=bert2genid,
                             device=device)
-    id2word = {id: word for word, id in model.vocab.items()}
     model.load_state_dict(torch.load(args.model_path))
     """
     try:
@@ -302,7 +267,7 @@ if __name__ == '__main__':
     model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))
 
-    eval(model, test_dataset, args, save_folder=model_folder, id2word=id2word, device=device)
+    eval(model, test_dataset, args, save_folder=model_folder, device=device)
 
     end_t = time.time()
     m_count = ((end_t-start_t)/60) % 60

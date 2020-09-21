@@ -22,16 +22,18 @@ class Decoder(nn.Module):
                 n_layers,
                 n_heads,
                 embedding_net,
-                vocab_size,
+                input_vocab_size,
+                out_vocab_size,
                 dropout_prob):
         super(Decoder, self).__init__()
 
         self.d_model = d_model
-        self.vocab_size = vocab_size
+        self.input_vocab_size = input_vocab_size
+        self.out_vocab_size = out_vocab_size
         self.n_layers = n_layers
 
-        #self.embedding_layer = TransformerEmbedding(vocab_size, d_model)
-        self.embedding_layer = embedding_net
+        self.embedding_layer = TransformerEmbedding(input_vocab_size, d_model)
+        #self.embedding_layer = embedding_net
         self.decoder_layers = nn.ModuleList([
                     MultiAttentiveDecoder(d_model=d_model,
                                         d_enc=d_enc,
@@ -44,11 +46,11 @@ class Decoder(nn.Module):
                     for _ in range(n_layers)
                 ])
 
-        self.out_layer = nn.Sequential(nn.Linear(d_model, d_model),
+        self.out_layer = nn.Sequential(nn.Linear(d_model, d_model//2),
                                         nn.ReLU(),
-                                        nn.Linear(d_model, d_model),
+                                        nn.Linear(d_model//2, d_model//4),
                                         nn.ReLU(),
-                                        nn.Linear(d_model, self.vocab_size))
+                                        nn.Linear(d_model//4, self.out_vocab_size))
 
 
     def forward(self, 
@@ -105,8 +107,9 @@ class Decoder(nn.Module):
         visual_attn_mask = visual_attn_mask.transpose(1, 2)
         visual_attn_mask[:, :] *= input_mask[:, None, :]
         visual_attn_mask = visual_attn_mask.transpose(1, 2)
-        #x = self.embedding_layer(input_batch)
 
+        x = self.embedding_layer(input_batch)
+        """
         x = torch.zeros((input_batch.shape[0], input_batch.shape[1], self.d_model), dtype=torch.float32).to(device)
         #todo x[:, 0] = self.embedding_layer(self.start_id)
         for i in range(input_batch.shape[-1]):
@@ -114,7 +117,7 @@ class Decoder(nn.Module):
                                             input_mask=self_attn_mask[:, i, :i+1],
                                             input_token_type=torch.zeros(input_batch[:, :i+1].shape, dtype=torch.long).to(device))
             x[:, i] = curr_embs[:, i]
-
+        """
         #todo from here
         #pdb.set_trace()
         for idx in range(len(self.decoder_layers)):
@@ -125,8 +128,7 @@ class Decoder(nn.Module):
                                         visual=visual,
                                         self_attn_mask=self_attn_mask,
                                         enc_attn_mask=enc_attn_mask,
-                                        visual_attn_mask=visual_attn_mask
-                                        )
+                                        visual_attn_mask=visual_attn_mask)
         #pdb.set_trace()
         vocab_logits = self.out_layer(x)
         return vocab_logits
@@ -175,6 +177,7 @@ class TransformerEmbedding(nn.Module):
         input_len = input_seq.shape[1]
         device = input_seq.device
         pos_emb = self.positional_embeddings[:input_len].to(device)
+
         #enforce the embedding to prevent loose on information by multiplying it with a scalar
         return self.embedding_net(input_seq)*math.sqrt(self.d_model) + pos_emb[None, :, :]
 
@@ -243,7 +246,7 @@ class MultiAttentiveDecoder(nn.Module):
                 visual_attn_mask,
                 self_attn_mask, 
                 enc_attn_mask):
-
+        #pdb.set_trace()
         self_attn_out = self.multi_head_self(input_embs, self_attn_mask)
         sub_out1 = self.layerNorm(input_embs + self.dropout(self_attn_out))
 
@@ -256,9 +259,9 @@ class MultiAttentiveDecoder(nn.Module):
         #fusion_out = self.fusion_module(sub_out2, history_context, visual_context)
         #sub_out3 = self.layerNorm(sub_out2 + self.dropout(fusion_out))
 
-        fnn_out = self.fnn(sub_out3)
-        sub_out4 = self.layerNorm(sub_out3 + self.dropout(fnn_out))
-        
+        fnn_out = self.fnn(sub_out3) #todo change to subout3
+        sub_out4 = self.layerNorm(sub_out3 + self.dropout(fnn_out)) #todo change to subout3
+
         return sub_out4
 
 

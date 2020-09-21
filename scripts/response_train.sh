@@ -16,7 +16,7 @@ python mm_response_generation/train.py \
         --eval $EVAL_PATH\
         --metadata_ids $METADATA_IDS_PATH\
         --generative_vocab $GEN_VOCAB\
-        --batch_size 512\
+        --batch_size 256\
         --epochs 200\
         --checkpoints\
         --cuda

@@ -4,10 +4,10 @@
 #export MODEL=blindstateful
 export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-09-18T17:08:42
+export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-09-21T15:59:06
 
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
-export VOCABULARY=${CHECKPOINT_FOLDER}/vocabulary.pkl
+export VOCABULARY=${CHECKPOINT_FOLDER}/bert2genid.pkl
 export MODEL_CONF=${CHECKPOINT_FOLDER}/model_conf.json
 export DATASET_PATH=data/simmc_fashion/devtest/response_retrieval_data.dat
 export GLOVE_PATH=embeddings/glove.6B.300d.txt
@@ -24,11 +24,11 @@ python mm_response_generation/eval.py\
         --metadata_ids $METADATA_IDS_PATH\
         --beam_size 3\
         --retrieval_eval\
-        --cuda 5
+        --cuda 2
 
-#python mm_response_generation/utilities/response_evaluation.py \
-#        --data_json_path data/simmc_fashion/devtest/fashion_devtest_dials.json \
-#        --model_response_path  ${CHECKPOINT_FOLDER}/eval_gen.json > ${CHECKPOINT_FOLDER}/scores.txt
+python mm_response_generation/utilities/response_evaluation.py \
+        --data_json_path data/simmc_fashion/devtest/fashion_devtest_dials.json \
+        --model_response_path  ${CHECKPOINT_FOLDER}/eval_gen.json > ${CHECKPOINT_FOLDER}/scores.txt
 
 python mm_response_generation/utilities/retrieval_evaluation.py \
         --retrieval_json_path data/simmc_fashion/devtest/fashion_devtest_dials_retrieval_candidates.json\
