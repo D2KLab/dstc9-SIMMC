@@ -12,7 +12,7 @@ from .old_encoder import SingleEncoder
 from .bert import BertEncoder
 from transformers import BertTokenizer #todo remove
 
-_MAX_INFER_LEN = 5
+_MAX_INFER_LEN = 30
 
 class MMStatefulLSTM(nn.Module):
 

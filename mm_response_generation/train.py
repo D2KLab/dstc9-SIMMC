@@ -26,7 +26,7 @@ torch.backends.cudnn.enabled = True
 
 
 def instantiate_model(args, out_vocab, device):
-
+    """
     if args.model == 'blindstateless':
         return BlindStatelessLSTM(word_embeddings_path=args.embeddings, 
                                 pad_token=special_toks['pad_token'],
@@ -34,12 +34,26 @@ def instantiate_model(args, out_vocab, device):
                                 seed=train_conf['seed'],
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
-    elif args.model == 'mmstateful':
-        return MMStatefulLSTM(**model_conf,
-                            seed=train_conf['seed'],
-                            device=device,
-                            out_vocab=out_vocab,
-                            **special_toks)
+    """
+
+    if args.model == 'mmstateful':
+        if args.from_checkpoint is not None:
+            with open(os.path.join(args.from_checkpoint, 'state_dict.pt'), 'rb') as fp:
+                state_dict = torch.load(fp)
+            with open(os.path.join(args.from_checkpoint, 'model_conf.json'), 'rb') as fp:
+                loaded_conf = json.load(fp)
+            loaded_conf.pop('dropout_prob')
+            model_conf.update(loaded_conf)
+
+        model = MMStatefulLSTM(**model_conf,
+                                seed=train_conf['seed'],
+                                device=device,
+                                out_vocab=out_vocab,
+                                **special_toks)
+        if args.from_checkpoint is not None:
+            model.load_state_dict(state_dict)
+            print('Model loaded from {}'.format(args.from_checkpoint))
+        return model
     else:
         raise Exception('Model not present!')
 
@@ -180,10 +194,10 @@ def train(train_dataset, dev_dataset, args, device):
     #optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'])
     optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
     #todo scheduler step every 100 steps
-    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(500, 500*5, 100)), gamma = 0.1)
-    #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(10, args.epochs, 10)), gamma = 0.8)
+    #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(500, 500*5, 100)), gamma = 0.1)
+    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(25, 100, 50)), gamma = 0.1)
     #todo uncomment
-    #scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=15, threshold=1e-2, cooldown=10, verbose=True)
+    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=12, threshold=1e-3, cooldown=2, verbose=True)
 
     #prepare containers for statistics
     losses_trend = {'train': [], 
@@ -279,7 +293,8 @@ def train(train_dataset, dev_dataset, args, device):
                                                                                     optimizer.param_groups[0]['lr'],
                                                                                     time_str))
         #TODO uncomment
-        #scheduler2.step(losses_trend['dev'][-1])
+        scheduler1.step()
+        scheduler2.step(losses_trend['dev'][-1])
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60
@@ -334,6 +349,12 @@ if __name__ == '__main__':
         required=True,
         type=int,
         help="Number of epochs")
+    parser.add_argument(
+        "--from_checkpoint",
+        type=str,
+        required=False,
+        default=None,
+        help="Path to checkpoint to load")
     parser.add_argument(
         "--checkpoints",
         action='store_true',

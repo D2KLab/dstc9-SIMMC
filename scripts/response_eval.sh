@@ -22,7 +22,7 @@ python mm_response_generation/eval.py\
         --data  $DATASET_PATH\
         --embeddings $GLOVE_PATH\
         --metadata_ids $METADATA_IDS_PATH\
-        --beam_size 3\
+        --beam_size 10\
         --retrieval_eval\
         --cuda 2
 
