@@ -199,7 +199,7 @@ class BertCollate():
         """
 
         id2pos = {}
-        items_tensors = []
+        items_strings = []
         for idx, (item_id, item) in enumerate(processed_metadata.items()):
             id2pos[int(item_id)] = idx
             curr_item_strings = []
@@ -209,9 +209,9 @@ class BertCollate():
                 else:
                     curr_str = '{}: {}'.format(field, 'none')
                 curr_item_strings.append(curr_str)
-            item_tensors = self.tokenizer(curr_item_strings, padding='longest')
-            self.add_tensor_ids_to_vocab(item_tensors['input_ids'])
-            items_tensors.append(item_tensors)
+            items_strings.append('. '.join(curr_item_strings))
+        items_tensors = self.tokenizer(items_strings, padding='longest', return_tensors='pt')
+        self.add_tensor_ids_to_vocab(items_tensors['input_ids'])
         #todo from here: adapt the collate_fn in training. Encode independently each item's (key,values) pair, concatenate the results for each single item and the pad along the batch
         """
         plain_text_items = []

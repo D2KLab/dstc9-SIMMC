@@ -325,7 +325,6 @@ class MMStatefulLSTM(nn.Module):
         if self.mode == 'inference' and self.retrieval_eval:
             assert len(utterances) == candidates.shape[0], 'Batch sizes do not match'
 
-
         batch_dict = {}
         batch_dict['utterances'] = utterances
         batch_dict['utterances_mask'] = utterances_mask

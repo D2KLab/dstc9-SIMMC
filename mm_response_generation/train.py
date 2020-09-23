@@ -19,7 +19,7 @@ from models import BlindStatelessLSTM, MMStatefulLSTM
 from utilities import DataParallelV2, Logger, plotting_loss
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0,3,5"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0,2,3,4,5"  # specify which GPU(s) to be used
 torch.autograd.set_detect_anomaly(True)
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.enabled = True
@@ -83,7 +83,7 @@ def move_batch_to_device(batch, device):
     """
 
 
-def visualize_output(request, responses, id2word, genid2word, vocab_logits, device):
+def visualize_output(request, responses, item, id2word, genid2word, vocab_logits, device):
     shifted_targets = torch.cat((responses[:, 1:], torch.zeros((responses.shape[0], 1), dtype=torch.long).to(device)), dim=-1)
     rand_idx = random.randint(0, shifted_targets.shape[0]-1)
     eff_len = shifted_targets[rand_idx][shifted_targets[rand_idx] != 0].shape[0]
@@ -96,6 +96,9 @@ def visualize_output(request, responses, id2word, genid2word, vocab_logits, devi
 
     out = ' '.join([id2word[out_id.item()] for out_id in shifted_targets[rand_idx] if out_id !=0])
     print('wizard: {}'.format(out))
+
+    item = ' '.join([id2word[item_id.item()] for item_id in item[rand_idx] if item_id !=0])
+    print('item: {}'.format(item))
 
     gens = torch.argmax(torch.nn.functional.softmax(vocab_logits, dim=-1), dim=-1)
     gen = ' '.join([genid2word[gen_id.item()] for gen_id in gens[:, :eff_len][rand_idx]])
@@ -126,7 +129,7 @@ def forward_step(model, batch, generative_targets, response_criterion, device):
             vocab = model.module.vocab
             id2word = model.module.id2word
             genid2word = model.module.genid2word
-        visualize_output(request=batch['utterances'], responses=batch['responses'], id2word=id2word, genid2word=genid2word, vocab_logits=vocab_logits, device=device)
+        visualize_output(request=batch['utterances'], responses=batch['responses'], item=batch['focus'], id2word=id2word, genid2word=genid2word, vocab_logits=vocab_logits, device=device)
 
     #pdb.set_trace()
 
@@ -193,10 +196,9 @@ def train(train_dataset, dev_dataset, args, device):
     #prepare optimizer
     #optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'])
     optimizer = torch.optim.Adam(params=model.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
-    #todo scheduler step every 100 steps
+
     #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(500, 500*5, 100)), gamma = 0.1)
     scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(range(25, 100, 50)), gamma = 0.1)
-    #todo uncomment
     scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=12, threshold=1e-3, cooldown=2, verbose=True)
 
     #prepare containers for statistics
@@ -293,7 +295,7 @@ def train(train_dataset, dev_dataset, args, device):
                                                                                     optimizer.param_groups[0]['lr'],
                                                                                     time_str))
         #TODO uncomment
-        scheduler1.step()
+        #scheduler1.step()
         scheduler2.step(losses_trend['dev'][-1])
 
     end_t = time.time()

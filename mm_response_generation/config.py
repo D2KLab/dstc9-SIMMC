@@ -7,10 +7,10 @@ class SIMMCFashionConfig():
 """
 
 model_conf = {
-    'dropout_prob': 0.3,
+    'dropout_prob': 0.5,
     'freeze_bert': True,
     'n_decoders': 2,
-    'decoder_heads': 4 #todo must be a perfect divisor of 768
+    'decoder_heads': 6 #todo must be a perfect divisor of 768
 }
 
 special_toks = {
@@ -24,6 +24,6 @@ train_conf = {
     'seed': 240797,
     'distractors_sampling': -1, #-1 to avoid sampling
     'lr': 1e-3,
-    'weight_decay': 1e-2,
+    'weight_decay': 1e-3,
     'ckpt_folder': 'mm_response_generation/checkpoints'
 }
