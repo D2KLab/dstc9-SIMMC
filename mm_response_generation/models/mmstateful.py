@@ -182,6 +182,8 @@ class MMStatefulLSTM(nn.Module):
             """
             return vocab_logits
         else:
+            infer_res = tuple()
+            
             #at inference time (NOT EVAL)
             self.never_ending = 0
             dec_args = {'encoder_out': u_t_all, 'enc_mask': utterances_mask, 'visual': v_t_tilde, 'visual_mask': focus_mask}
@@ -194,6 +196,7 @@ class MMStatefulLSTM(nn.Module):
             best_dict['string'] = self.tokenizer.decode([self.genid2bertid[id] for id in best_dict['seq']])
             #print('Never-ending generated sequences: {}'.format(self.never_ending))
             infer_res = (best_dict,)
+            
             if self.retrieval_eval:
                 #eval on retrieval task 
                 #build a fake batch by expanding the tensors

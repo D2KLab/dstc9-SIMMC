@@ -9,6 +9,7 @@ import json
 
 import numpy as np
 
+
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "retrieval_json_path", "data/furniture_train.json", "Data with gold responses"

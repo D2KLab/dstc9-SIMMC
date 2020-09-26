@@ -142,11 +142,12 @@ def eval(model, test_dataset, args, save_folder, device):
                         attributes=None)
             response = res[0]['string']
             if args.retrieval_eval:
-                scores = res[1]
+                scores = res[-1]
 
             #visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, responses)
             gen_eval_dict[dial_id]['predictions'].append({'response': response})
             retr_eval_dict[dial_id]['candidate_scores'].append(scores.squeeze(0).tolist())
+            #todo here adjust candidates scores based on semantic attribute informations
 
     retr_eval_list = []
     gen_eval_list = []
@@ -160,7 +161,6 @@ def eval(model, test_dataset, args, save_folder, device):
         print('retrieval results saved in {}'.format(save_file))
     except:
         print('Error in writing the resulting JSON')
-
     save_file = os.path.join(save_folder, 'eval_gen.json')
     try:
         with open(save_file, 'w+') as fp:

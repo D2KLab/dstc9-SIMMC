@@ -4,7 +4,7 @@
 #export MODEL=blindstateful
 export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/2020-09-21T15:59:06
+export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/archive/2020-09-21T15:59:06
 
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/bert2genid.pkl
@@ -22,9 +22,9 @@ python mm_response_generation/eval.py\
         --data  $DATASET_PATH\
         --embeddings $GLOVE_PATH\
         --metadata_ids $METADATA_IDS_PATH\
-        --beam_size 10\
+        --beam_size 5\
         --retrieval_eval\
-        --cuda 2
+        --cuda 4
 
 python mm_response_generation/utilities/response_evaluation.py \
         --data_json_path data/simmc_fashion/devtest/fashion_devtest_dials.json \
