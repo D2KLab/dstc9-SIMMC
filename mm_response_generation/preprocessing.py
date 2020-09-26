@@ -212,23 +212,7 @@ class BertCollate():
             items_strings.append('. '.join(curr_item_strings))
         items_tensors = self.tokenizer(items_strings, padding='longest', return_tensors='pt')
         self.add_tensor_ids_to_vocab(items_tensors['input_ids'])
-        #todo from here: adapt the collate_fn in training. Encode independently each item's (key,values) pair, concatenate the results for each single item and the pad along the batch
-        """
-        plain_text_items = []
-        for idx, (item_id, item) in enumerate(processed_metadata.items()):
-            id2pos[int(item_id)] = idx
-            curr_item_strings = []
-            for field, values in item.items():
-                if len(values):
-                    curr_str = '{}: {}'.format(field, ', '.join(values))
-                else:
-                    curr_str = '{}: {}'.format(field, 'none')
-                curr_item_strings.append(curr_str)
-            plain_text_items.append('. '.join(curr_item_strings))
 
-        items_tensors = self.tokenizer(plain_text_items, padding='longest', return_tensors='pt')
-        self.add_tensor_ids_to_vocab(items_tensors['input_ids'])
-        """
         res_dict = {'id2pos': id2pos, 'items_tensors': items_tensors}
 
         return res_dict
@@ -245,6 +229,7 @@ class BertCollate():
         actions = [item[6] for item in batch]
         attributes = [item[7] for item in batch]
         retr_candidates = [item[8] for item in batch]
+        pdb.set_trace()
 
         #each results has three keys: 'input_ids', 'token_type_ids', 'attention_mask'
         utterances_tensors = self.tokenizer(utterances, padding='longest', return_tensors='pt')
@@ -262,6 +247,7 @@ class BertCollate():
                 continue
             history_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
         actions_tensors = self.tokenizer(actions, padding='longest', return_tensors='pt')
+        """
         attrs_seq_ids = []
         for item in attributes:
             if not len(item):
@@ -271,6 +257,7 @@ class BertCollate():
                 attrs_seq_ids.append(no_attr)
                 continue
             attrs_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
+        """
         all_candidates = [candidate for pool in retr_candidates for candidate in pool]
         candidates_tensors = self.tokenizer(all_candidates, padding='longest', return_tensors='pt')
         candidates_tensors = {'input_ids': candidates_tensors['input_ids'].view(len(dial_ids), 100, -1),

@@ -27,6 +27,7 @@ python mm_response_generation/eval.py\
         --metadata_ids $METADATA_IDS_PATH\
         --beam_size 5\
         --retrieval_eval\
+        --gen_eval\
         --cuda 0
 
 #python $GEN_EVAL_SCRIPT\

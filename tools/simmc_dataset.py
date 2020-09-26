@@ -269,7 +269,7 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
         #convert actions and attributes to english strings
         action = action.lower() if action.lower() not in self._ACT2STR else self._ACT2STR[action.lower()]
-        attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
+        #attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
         retrieval_candidates = [self.candidates[candidate_id] for candidate_id in candidates_ids]
 
         return dial_id, turn, user_req, wizard_resp, history, focus, action, attributes, retrieval_candidates
@@ -301,7 +301,6 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
 
     def load_actions(self, actions_path):
-        #TODO sort id2act based on 'turn_idx' field
         self.id2act = {}
         self.id2actfocus = {}
         with open(actions_path) as fp:
