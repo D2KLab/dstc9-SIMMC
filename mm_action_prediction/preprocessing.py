@@ -157,10 +157,11 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
     testloader = DataLoader(test_dataset, **params, collate_fn=collate.collate_fn)
 
     start_t = time.time()
+    save_path='{}/{}_action_prediction_data.dat'
 
-    save_data_on_file(iterator=trainloader, save_path=os.path.join(args.train_folder, 'action_prediction_data.dat'))
-    save_data_on_file(iterator=devloader, save_path=os.path.join(args.dev_folder, 'action_prediction_data.dat'))
-    save_data_on_file(iterator=testloader, save_path=os.path.join(args.test_folder, 'action_prediction_data.dat'))
+    save_data_on_file(iterator=trainloader, save_path=save_path.format(args.actions_folder, 'train'))
+    save_data_on_file(iterator=devloader, save_path=save_path.format(args.actions_folder, 'dev'))
+    save_data_on_file(iterator=testloader, save_path=save_path.format(args.actions_folder, 'devtest'))
 
     end_t = time.time()
     h_count = (end_t-start_t) /60 /60
@@ -177,27 +178,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--train_folder",
+        "--simmc_folder",
         type=str,
         required=True,
-        help="Path to training dataset JSON file")
+        help="Path to simmc fashion dataset folder")
     parser.add_argument(
-        "--dev_folder",
-        type=str,
-        required=False,
-        default=None,
-        help="Path to training dataset JSON file")
-    parser.add_argument(
-        "--test_folder",
-        type=str,
-        required=False,
-        default=None,
-        help="Path to training dataset JSON file")
-    parser.add_argument(
-        "--metadata",
+        "--actions_folder",
         type=str,
         required=True,
-        help="Path to metadata JSON file")
+        help="Path to simmc fashion actions folder")
     parser.add_argument(
         "--embeddings",
         type=str,
@@ -208,20 +197,25 @@ if __name__ == '__main__':
         type=str,
         required=True,
         help="Path to metadata embeddings file")
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        required=True,
+        help="Path to metadata JSON file")
 
     args = parser.parse_args()
     
     dataset_path = '{}/fashion_{}_dials.json'
     actions_path = '{}/fashion_{}_dials_api_calls.json'
 
-    train_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.train_folder, 'train'), 
+    train_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.simmc_folder, 'train'), 
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.train_folder, 'train'))
-    dev_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.dev_folder, 'dev'),
+                                                    actions_path=actions_path.format(args.actions_folder, 'train'))
+    dev_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.simmc_folder, 'dev'),
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.dev_folder, 'dev'))
-    test_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.test_folder, 'devtest'), 
+                                                    actions_path=actions_path.format(args.actions_folder, 'dev'))
+    test_dataset = SIMMCDatasetForActionPrediction(data_path=dataset_path.format(args.simmc_folder, 'devtest'), 
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.test_folder, 'devtest'))
+                                                    actions_path=actions_path.format(args.actions_folder, 'devtest'))
 
     preprocess(train_dataset, dev_dataset, test_dataset, args)

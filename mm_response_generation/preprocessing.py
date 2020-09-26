@@ -301,27 +301,6 @@ class BertCollate():
 
 def save_data_on_file(loader, save_path):
 
-    """
-    dial_id_list = []
-    turn_list = []
-    utterance_list = []
-    history_list = []
-    actions_list = []
-    attributes_list = []
-    focus_list = []
-    candidate_list = []
-    
-    for dial_ids, turns, batch in iterator:
-        assert len(dial_ids) == 1, 'Only unitary batches are allowed during preprocessing'
-        dial_id_list.append(dial_ids[0])
-        turn_list.append(turns[0])
-        utterance_list.append(batch['utterances'][0])
-        history_list.append(batch['history'][0])
-        actions_list.append(batch['actions'][0])
-        attributes_list.append(batch['attributes'][0])
-        focus_list.append(batch['focus'])
-        candidate_list.append(candidates_pool[0])
-    """
     dial_ids, turns, data_dict = iter(loader).next()
     
     
@@ -338,39 +317,10 @@ def save_data_on_file(loader, save_path):
 
 def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
-    if not args.bert:
-        # prepare model's vocabulary
-        train_vocabulary = train_dataset.get_vocabulary()
-        dev_vocabulary = dev_dataset.get_vocabulary()
-        test_vocabulary = test_dataset.get_vocabulary()
-
-        vocabulary = train_vocabulary.union(dev_vocabulary)
-        vocabulary = vocabulary.union(test_vocabulary)
-        sorted_voc = [word for word in sorted(vocabulary)]
-
-        word2id = {}
-        word2id[special_toks['pad_token']] = 0
-        word2id[special_toks['start_token']] = 1
-        word2id[special_toks['end_token']] = 2
-        word2id[special_toks['unk_token']] = 3
-        for idx, word in enumerate(sorted_voc):
-            word2id[word] = idx+4
-        np.save(os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'vocabulary.npy'), word2id)
-        print('VOCABULARY SIZE: {}'.format(len(word2id)))
-        collate = Collate(word2id=word2id, unk_token=special_toks['unk_token'])
-        metadata_ids = collate.metadata2ids(train_dataset.processed_metadata, word2id=word2id, unk_token=special_toks['unk_token'])
-    else:
-        collate = BertCollate('bert-base-uncased')
-        metadata_ids = collate.metadata2ids(train_dataset.processed_metadata)
-    torch.save(metadata_ids, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'metadata_ids.dat'))
-
-    """
-    raw_data = np.load(args.metadata_embeddings, allow_pickle=True)
-    raw_data = dict(raw_data.item())
-    item2id = {}
-    for idx, item in enumerate(raw_data['item_ids']):
-        item2id[item] = idx
-    """
+    save_path = '{}/{}'
+    collate = BertCollate('bert-base-uncased')
+    metadata_ids = collate.metadata2ids(train_dataset.processed_metadata)
+    torch.save(metadata_ids, save_path.format(args.save_path, 'metadata_ids.dat'))
 
     # prepare DataLoader
     params = {'batch_size': len(train_dataset),
@@ -383,12 +333,12 @@ def preprocess(train_dataset, dev_dataset, test_dataset, args):
 
     start_t = time.time()
 
-    save_data_on_file(loader=trainloader, save_path=os.path.join(args.train_folder, 'response_retrieval_data.dat'))
+    save_data_on_file(loader=trainloader, save_path=save_path.format(args.save_path, 'train_response_retrieval_data.dat'))
     #save vocab and inverse word frequencies only for training data
     vocab, inv_freqs = collate.get_vocab_and_inv_frequencies()
-    torch.save({'vocab': vocab, 'inv_freqs': torch.tensor(inv_freqs)}, os.path.join('/'.join(args.train_folder.split('/')[:-1]), 'generative_vocab.dat'))
-    save_data_on_file(loader=devloader, save_path=os.path.join(args.dev_folder, 'response_retrieval_data.dat'))
-    save_data_on_file(loader=testloader, save_path=os.path.join(args.test_folder, 'response_retrieval_data.dat'))
+    torch.save({'vocab': vocab, 'inv_freqs': torch.tensor(inv_freqs)}, save_path.format(args.save_path, 'generative_vocab.dat'))
+    save_data_on_file(loader=devloader, save_path=save_path.format(args.save_path, 'dev_response_retrieval_data.dat'))
+    save_data_on_file(loader=testloader, save_path=save_path.format(args.save_path, 'devtest_response_retrieval_data.dat'))
 
     #print('UNKNOWN DATASET WORDS: {}'.format(len(collate.UNK_WORDS)))
 
@@ -407,43 +357,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--train_folder",
+        "--simmc_folder",
         type=str,
         required=True,
-        help="Path to training dataset JSON file")
+        help="Path to simmc fashion dataset folder")
     parser.add_argument(
-        "--dev_folder",
+        "--actions_folder",
         type=str,
-        required=False,
-        default=None,
-        help="Path to training dataset JSON file")
-    parser.add_argument(
-        "--test_folder",
-        type=str,
-        required=False,
-        default=None,
-        help="Path to training dataset JSON file")
+        required=True,
+        help="Path to simmc fashion actions folder")
     parser.add_argument(
         "--metadata",
         type=str,
         required=True,
         help="Path to metadata JSON file")
     parser.add_argument(
-        "--embeddings",
+        "--save_path",
         type=str,
         required=True,
-        help="Path to embeddings file")
-    parser.add_argument(
-        "--metadata_embeddings",
-        type=str,
-        required=True,
-        help="Path to metadata embeddings file")
-    parser.add_argument(
-        "--bert",
-        action='store_true',
-        default=False,
-        required=False,
-        help="flag to use bert tokenizer for preprocessing")
+        help="Path to save processed files")
 
     args = parser.parse_args()
     
@@ -451,17 +383,17 @@ if __name__ == '__main__':
     actions_path = '{}/fashion_{}_dials_api_calls.json'
     candidates_path = '{}/fashion_{}_dials_retrieval_candidates.json'
 
-    train_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.train_folder, 'train'), 
+    train_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.simmc_folder, 'train'), 
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.train_folder, 'train'), 
-                                                    candidates_path=candidates_path.format(args.train_folder, 'train'))
-    dev_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.dev_folder, 'dev'),
+                                                    actions_path=actions_path.format(args.actions_folder, 'train'), 
+                                                    candidates_path=candidates_path.format(args.simmc_folder, 'train'))
+    dev_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.simmc_folder, 'dev'),
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.dev_folder, 'dev'), 
-                                                    candidates_path=candidates_path.format(args.dev_folder, 'dev'))
-    test_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.test_folder, 'devtest'), 
+                                                    actions_path=actions_path.format(args.actions_folder, 'dev'), 
+                                                    candidates_path=candidates_path.format(args.simmc_folder, 'dev'))
+    test_dataset = SIMMCDatasetForResponseGeneration(data_path=dataset_path.format(args.simmc_folder, 'devtest'), 
                                                     metadata_path=args.metadata, 
-                                                    actions_path=actions_path.format(args.test_folder, 'devtest'), 
-                                                    candidates_path=candidates_path.format(args.test_folder, 'devtest'))
+                                                    actions_path=actions_path.format(args.actions_folder, 'devtest'), 
+                                                    candidates_path=candidates_path.format(args.simmc_folder, 'devtest'))
 
     preprocess(train_dataset, dev_dataset, test_dataset, args)

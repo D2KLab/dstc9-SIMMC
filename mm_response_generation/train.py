@@ -72,15 +72,6 @@ def move_batch_to_device(batch, device):
         if key == 'history':
             raise Exception('Not implemented')
         batch[key] = batch[key].to(device)
-    """
-    for h_idx in range(len(batch['history'])):
-        if len(batch['history'][h_idx]):
-            batch['history'][h_idx] = batch['history'][h_idx].to(device)
-    for i_idx in range(len(batch['focus_items'])):
-        batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
-        batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
-    batch['seq_lengths'] = batch['seq_lengths'].to(device)
-    """
 
 
 def visualize_output(request, responses, item, id2word, genid2word, vocab_logits, device):
@@ -131,14 +122,6 @@ def forward_step(model, batch, generative_targets, response_criterion, device):
             genid2word = model.module.genid2word
         visualize_output(request=batch['utterances'], responses=batch['responses'], item=batch['focus'], id2word=id2word, genid2word=genid2word, vocab_logits=vocab_logits, device=device)
 
-    #pdb.set_trace()
-
-    """
-    # the true response is always the first in the list of candidates
-    matching_targets = torch.ones(batch['utterances'].shape[0], dtype=torch.long).to(device)
-    response_loss = response_criterion(matching_logits, matching_targets)
-    """
-    #return the sum of the losses of all the GPUs
     return response_loss
 
 
@@ -168,7 +151,6 @@ def train(train_dataset, dev_dataset, args, device):
     print('GENERATIVE VOCABULARY SIZE: {}'.format(len(bert2genid)))
 
     # prepare model
-    #todo try to normalize the weights inv_freqs/inv_freqs.sum() (the reduction=mean already normalized the loss by the sum of the weights, so it is not needed)
     #response_criterion = torch.nn.CrossEntropyLoss(ignore_index=0, weight=inv_freqs/inv_freqs.sum()).to(device)
     response_criterion = torch.nn.CrossEntropyLoss(ignore_index=0).to(device)
     model = instantiate_model(args, out_vocab=bert2genid, device=device)
@@ -182,11 +164,11 @@ def train(train_dataset, dev_dataset, args, device):
     model.to(device)
     print('using {} GPU(s): {}'.format(torch.cuda.device_count(), os.environ["CUDA_VISIBLE_DEVICES"]))
     print('MODEL NAME: {}'.format(args.model))
-    #print('NETWORK: {}'.format(model)) #todo uncomment
+    print('NETWORK: {}'.format(model))
 
     # prepare DataLoader
     params = {'batch_size': args.batch_size,
-            'shuffle': True, #todo set to True
+            'shuffle': True,
             'num_workers': 0,
             'pin_memory': True}
     collate_fn = model.collate_fn if torch.cuda.device_count() <= 1 else model.module.collate_fn
@@ -216,15 +198,6 @@ def train(train_dataset, dev_dataset, args, device):
         model.train()
         curr_epoch_losses = []
         for batch_idx, (dial_ids, turns, batch, generative_targets) in enumerate(trainloader):
-            """
-            id2word = model.id2word
-            for req_ids in batch['utterances']:
-                req = ' '.join([id2word[req_id.item()] for req_id in req_ids if req_id != model.vocab['[PAD]']])
-                print(req)
-            for item_ids in batch['focus']:
-                item = ' '.join([id2word[item_id.item()] for item_id in item_ids if item_id != model.vocab['[PAD]']])
-                print(item)
-            """
             global_step += 1
             step_start = time.time()
             response_loss = forward_step(model, 

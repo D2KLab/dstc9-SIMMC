@@ -4,14 +4,18 @@
 #export MODEL=blindstateful
 export MODEL=mmstateful
 
-export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/archive/2020-09-21T15:59:06
+export SIMMC_FOLDER=simmc/data/simmc_fashion
+export GEN_EVAL_SCRIPT=simmc/mm_action_prediction/tools/response_evaluation.py
+export RETR_EVAL_SCRIPT=simmc/mm_action_prediction/tools/retrieval_evaluation.py
 
+export PROCESSED_FOLDER=processed_data/mm_response_generation
+export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/archive/2020-09-21T15:59:06
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/bert2genid.pkl
 export MODEL_CONF=${CHECKPOINT_FOLDER}/model_conf.json
-export DATASET_PATH=data/simmc_fashion/devtest/response_retrieval_data.dat
-export GLOVE_PATH=embeddings/glove.6B.300d.txt
-export METADATA_IDS_PATH=data/simmc_fashion/metadata_ids.dat
+
+export DATASET_PATH=$PROCESSED_FOLDER/devtest_response_retrieval_data.dat
+export METADATA_IDS_PATH=$PROCESSED_FOLDER/metadata_ids.dat
 
 
 python mm_response_generation/eval.py\
@@ -20,18 +24,18 @@ python mm_response_generation/eval.py\
         --vocabulary $VOCABULARY\
         --model_conf $MODEL_CONF\
         --data  $DATASET_PATH\
-        --embeddings $GLOVE_PATH\
         --metadata_ids $METADATA_IDS_PATH\
         --beam_size 5\
         --retrieval_eval\
-        --cuda 4
+        --cuda 0
 
-python mm_response_generation/utilities/response_evaluation.py \
-        --data_json_path data/simmc_fashion/devtest/fashion_devtest_dials.json \
-        --model_response_path  ${CHECKPOINT_FOLDER}/eval_gen.json > ${CHECKPOINT_FOLDER}/scores.txt
+#python $GEN_EVAL_SCRIPT\
+#        --data_json_path data/simmc_fashion/devtest/fashion_devtest_dials.json \
+#        --model_response_path  ${CHECKPOINT_FOLDER}/eval_gen.json > ${CHECKPOINT_FOLDER}/gen_scores.txt
 
-python mm_response_generation/utilities/retrieval_evaluation.py \
-        --retrieval_json_path data/simmc_fashion/devtest/fashion_devtest_dials_retrieval_candidates.json\
-        --model_score_path ${CHECKPOINT_FOLDER}/eval_retr.json >> ${CHECKPOINT_FOLDER}/scores.txt
+python $RETR_EVAL_SCRIPT\
+        --retrieval_json_path $SIMMC_FOLDER/fashion_devtest_dials_retrieval_candidates.json\
+        --model_score_path ${CHECKPOINT_FOLDER}/eval_retr.json > ${CHECKPOINT_FOLDER}/retr_scores.txt
 
-cat ${CHECKPOINT_FOLDER}/scores.txt
+cat ${CHECKPOINT_FOLDER}/gen_scores.txt
+cat ${CHECKPOINT_FOLDER}/retr_scores.txt

@@ -46,6 +46,7 @@ def instantiate_model(args, model_configurations, out_vocab, device):
                                 device=device,
                                 out_vocab=out_vocab,
                                 retrieval_eval=args.retrieval_eval,
+                                gen_eval=args.gen_eval,
                                 beam_size=args.beam_size,
                                 mode='inference',
                                 **special_toks,
@@ -62,19 +63,6 @@ def create_eval_dicts(dataset):
         gen_eval_dict[dial_id] = {'dialog_id': dial_id, 'predictions': []}
         retr_eval_dict[dial_id] = {'dialog_id': dial_id, 'candidate_scores': []}
     return gen_eval_dict, retr_eval_dict
-
-
-def remove_dataparallel(load_checkpoint_path):
-    # original saved file with DataParallel
-    state_dict = torch.load(load_checkpoint_path)
-    # create new OrderedDict that does not contain `module.`
-    from collections import OrderedDict
-    new_state_dict = OrderedDict()
-    for k, v in state_dict.items():
-        name = k[7:] # remove `module.`
-        new_state_dict[name] = v
-    # load params
-    return new_state_dict
 
 
 def move_batch_to_device(batch, device):
@@ -119,7 +107,7 @@ def eval(model, test_dataset, args, save_folder, device):
 
     model.eval()
     model.to(device)
-    print('MODEL: {}'.format(model))
+    #print('MODEL: {}'.format(model))
 
     # prepare DataLoader
     params = {'batch_size': 1,
@@ -140,39 +128,40 @@ def eval(model, test_dataset, args, save_folder, device):
                         history=None,
                         actions=None,
                         attributes=None)
-            response = res[0]['string']
+            if args.gen_eval:
+                gen_eval_dict[dial_id]['predictions'].append({'turn_id': turn, 'response': res['generation']['string']})
+                #visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, res['generation']['string'])
             if args.retrieval_eval:
-                scores = res[-1]
-
-            #visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, responses)
-            gen_eval_dict[dial_id]['predictions'].append({'response': response})
-            retr_eval_dict[dial_id]['candidate_scores'].append(scores.squeeze(0).tolist())
+                retr_eval_dict[dial_id]['candidate_scores'].append({'turn_id': turn, 'scores': res['retrieval'].squeeze(0).tolist()})
+            
             #todo here adjust candidates scores based on semantic attribute informations
 
-    retr_eval_list = []
-    gen_eval_list = []
-    for key in retr_eval_dict:
-        retr_eval_list.append(retr_eval_dict[key])
-        gen_eval_list.append(gen_eval_dict[key])
-    save_file = os.path.join(save_folder, 'eval_retr.json')
-    try:
-        with open(save_file, 'w+') as fp:
-            json.dump(retr_eval_list, fp)
-        print('retrieval results saved in {}'.format(save_file))
-    except:
-        print('Error in writing the resulting JSON')
-    save_file = os.path.join(save_folder, 'eval_gen.json')
-    try:
-        with open(save_file, 'w+') as fp:
-            json.dump(gen_eval_list, fp)
-        print('generation results saved in {}'.format(save_file))
-    except:
-        print('Error in writing the resulting JSON')
+    if args.gen_eval:
+        gen_eval_list = []
+        for key in gen_eval_dict:
+            gen_eval_list.append(gen_eval_dict[key])
+        save_file = os.path.join(save_folder, 'eval_gen.json')
+        try:
+            with open(save_file, 'w+') as fp:
+                json.dump(gen_eval_list, fp)
+            print('generation results saved in {}'.format(save_file))
+        except:
+            print('Error in writing the resulting JSON')
+    if args.retrieval_eval:
+        retr_eval_list = []
+        for key in retr_eval_dict:
+            retr_eval_list.append(retr_eval_dict[key])
+        save_file = os.path.join(save_folder, 'eval_retr.json')
+        try:
+            with open(save_file, 'w+') as fp:
+                json.dump(retr_eval_list, fp)
+            print('retrieval results saved in {}'.format(save_file))
+        except:
+            print('Error in writing the resulting JSON')
 
 
 
 if __name__ == '__main__':
-    #TODO make "infer": dataset with unknown labels (modify the dataset class)
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -204,13 +193,7 @@ if __name__ == '__main__':
         default=None,
         type=str,
         required=True,
-        help="Path to training dataset json file")
-    parser.add_argument(
-        "--embeddings",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to embedding file")
+        help="Path to test dataset json file")
     parser.add_argument(
         "--metadata_ids",
         type=str,
@@ -227,6 +210,12 @@ if __name__ == '__main__':
         default=False,
         required=False,
         help="Flag to enable retrieval evaluation")
+    parser.add_argument(
+        "--gen_eval",
+        action='store_true',
+        default=False,
+        required=False,
+        help="Flag to enable generation evaluation")
     parser.add_argument(
         "--cuda",
         default=None,
@@ -245,7 +234,6 @@ if __name__ == '__main__':
     print('EVAL DATASET: {}'.format(test_dataset))
 
     # prepare model
-    #word2id = torch.load(args.vocabulary)
     with open(args.model_conf) as fp:
         model_configurations = json.load(fp)
     with open(args.vocabulary, 'rb') as fp:
@@ -256,13 +244,6 @@ if __name__ == '__main__':
                             out_vocab=bert2genid,
                             device=device)
     model.load_state_dict(torch.load(args.model_path))
-    """
-    try:
-        #if the model was not trained with DataParallel then an exception will be raised
-        model.load_state_dict(remove_dataparallel(args.model_path))
-    except:
-        model.load_state_dict(torch.load(args.model_path))
-    """
 
     model_folder = '/'.join(args.model_path.split('/')[:-1])
     print('model loaded from {}'.format(model_folder))

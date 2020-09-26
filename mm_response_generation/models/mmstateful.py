@@ -29,6 +29,7 @@ class MMStatefulLSTM(nn.Module):
                 freeze_bert=False,
                 beam_size=None,
                 retrieval_eval=False,
+                gen_eval=False,
                 mode='train',
                 device='cpu'):
 
@@ -36,11 +37,14 @@ class MMStatefulLSTM(nn.Module):
         super(MMStatefulLSTM, self).__init__()
 
         if mode == 'inference':
-            assert beam_size is not None, 'Beam size need to be defined during inference'
+            assert retrieval_eval is not None or gen_eval is not None, 'At least one among retrieval_eval and gen_eval must be activated during inference' 
+            if gen_eval is not None:
+                assert beam_size is not None, 'Beam size need to be defined during generation inference'
 
         self.mode = mode
         self.beam_size = beam_size
         self.retrieval_eval = retrieval_eval
+        self.gen_eval = gen_eval
         self.bert2genid = out_vocab
         
         #self.item_embeddings_layer = ItemEmbeddingNetwork(item_embeddings_path)
@@ -176,31 +180,24 @@ class MMStatefulLSTM(nn.Module):
                                         input_mask=responses_mask,
                                         enc_mask=utterances_mask,
                                         visual_mask=focus_mask)
-            """
-            response_losses = self.response_criterion(vocab_logits.view(vocab_logits.shape[0]*vocab_logits.shape[1], -1), 
-                                                    generative_targets.view(vocab_logits.shape[0]*vocab_logits.shape[1]))
-            """
             return vocab_logits
         else:
-            infer_res = tuple()
-            
-            #at inference time (NOT EVAL)
-            self.never_ending = 0
-            dec_args = {'encoder_out': u_t_all, 'enc_mask': utterances_mask, 'visual': v_t_tilde, 'visual_mask': focus_mask}
-            #dec_args = {'encoder_out': u_t_all, 'history_context': h_t_tilde, 'visual_context': v_t_tilde, 'enc_mask': utterances_mask}
-            best_dict = self.beam_search(curr_seq=[self.start_id],
-                                        curr_score=0,
-                                        dec_args=dec_args,
-                                        best_dict={'seq': [], 'score': -float('inf')},
-                                        device=curr_device)
-            best_dict['string'] = self.tokenizer.decode([self.genid2bertid[id] for id in best_dict['seq']])
-            #print('Never-ending generated sequences: {}'.format(self.never_ending))
-            infer_res = (best_dict,)
-            
+            infer_res = {}
+            if self.gen_eval:
+                #at inference time (NOT EVAL)
+                self.never_ending = 0
+                dec_args = {'encoder_out': u_t_all, 'enc_mask': utterances_mask, 'visual': v_t_tilde, 'visual_mask': focus_mask}
+                best_dict = self.beam_search(curr_seq=[self.start_id],
+                                            curr_score=0,
+                                            dec_args=dec_args,
+                                            best_dict={'seq': [], 'score': -float('inf')},
+                                            device=curr_device)
+                best_dict['string'] = self.tokenizer.decode([self.genid2bertid[id] for id in best_dict['seq']])
+                #print('Never-ending generated sequences: {}'.format(self.never_ending))
+                infer_res['generation'] = best_dict
             if self.retrieval_eval:
                 #eval on retrieval task 
                 #build a fake batch by expanding the tensors
-                #pdb.set_trace()
                 vocab_logits = [
                                     self.decoder(input_batch=pool,
                                                 encoder_out=u_t_all.expand(pool.shape[0], -1, -1),
@@ -213,7 +210,7 @@ class MMStatefulLSTM(nn.Module):
                                 ]
                 #candidates_scores shape: Bx100
                 candidates_scores = self.compute_candidates_scores(candidates_targets, vocab_logits)
-                infer_res += (candidates_scores,)
+                infer_res['retrieval'] = candidates_scores
             return infer_res
 
     
