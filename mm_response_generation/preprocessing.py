@@ -227,9 +227,8 @@ class BertCollate():
         history = [item[4] for item in batch]
         focus = [item[5] for item in batch]
         actions = [item[6] for item in batch]
-        attributes = [item[7] for item in batch]
+        attributes = [item[7][0] for item in batch]
         retr_candidates = [item[8] for item in batch]
-        pdb.set_trace()
 
         #each results has three keys: 'input_ids', 'token_type_ids', 'attention_mask'
         utterances_tensors = self.tokenizer(utterances, padding='longest', return_tensors='pt')
@@ -247,17 +246,6 @@ class BertCollate():
                 continue
             history_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
         actions_tensors = self.tokenizer(actions, padding='longest', return_tensors='pt')
-        """
-        attrs_seq_ids = []
-        for item in attributes:
-            if not len(item):
-                no_attr = {'input_ids': torch.zeros(utterances_tensors['input_ids'].shape[1]),
-                            'token_type_ids': torch.zeros(utterances_tensors['input_ids'].shape[1]),
-                            'attention_mask': torch.zeros(utterances_tensors['input_ids'].shape[1])}
-                attrs_seq_ids.append(no_attr)
-                continue
-            attrs_seq_ids.append(self.tokenizer(item, padding='longest', return_tensors='pt'))
-        """
         all_candidates = [candidate for pool in retr_candidates for candidate in pool]
         candidates_tensors = self.tokenizer(all_candidates, padding='longest', return_tensors='pt')
         candidates_tensors = {'input_ids': candidates_tensors['input_ids'].view(len(dial_ids), 100, -1),
@@ -269,7 +257,7 @@ class BertCollate():
         assert utterances_tensors['input_ids'].shape[0] == responses_tensors['input_ids'].shape[0], 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == len(history_seq_ids), 'Batch sizes do not match'
         assert utterances_tensors['input_ids'].shape[0] == actions_tensors['input_ids'].shape[0], 'Batch sizes do not match'
-        assert utterances_tensors['input_ids'].shape[0] == len(attrs_seq_ids)
+        assert utterances_tensors['input_ids'].shape[0] == len(attributes)
         assert utterances_tensors['input_ids'].shape[0] == candidates_tensors['input_ids'].shape[0]
         assert utterances_tensors['input_ids'].shape[0] == len(focus), 'Batch sizes do not match'
 
@@ -278,7 +266,7 @@ class BertCollate():
         data_dict['responses'] = responses_tensors
         data_dict['history'] = history_seq_ids
         data_dict['actions'] = actions_tensors
-        data_dict['attributes'] = attrs_seq_ids
+        data_dict['attributes'] = attributes
         data_dict['focus'] = focus
         data_dict['candidates'] = candidates_tensors
 

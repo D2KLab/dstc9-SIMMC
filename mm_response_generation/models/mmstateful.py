@@ -145,19 +145,7 @@ class MMStatefulLSTM(nn.Module):
         assert utterances.shape[0] == focus_token_type.shape[0], 'Inconstistent batch size'
         if self.retrieval_eval:
             assert candidates_targets is not None, 'Candidates have to be specified with retrieval_eval set to True'
-
-        """
-        assert utterances.shape[0] == len(history), 'Inconsistent batch size'
-        assert utterances.shape[0] == len(actions), 'Inconsistent batch size'
-        assert utterances.shape[0] == len(attributes), 'Inconsistent batch size'
-        assert utterances.shape[0] == len(focus_items), 'Inconsistent batch size'
-        assert utterances.shape == utterances_mask.shape, 'Inconsistent mask size'
-        assert candidates_pool.shape == pools_padding_mask.shape, 'Inconsistent mask size'
-        curr_device = utterances.device
-        for idx, _ in enumerate(history):
-            if len(history[idx]):
-                history[idx] = history[idx].to(curr_device)
-        """
+            assert attributes is not None, 'Attributes needed for semantic score computation'
 
         u_t_all = self.bert(input=utterances,
                             input_mask=utterances_mask,
@@ -209,7 +197,7 @@ class MMStatefulLSTM(nn.Module):
                                     for pool, pool_mask in zip(candidates, candidates_mask)
                                 ]
                 #candidates_scores shape: Bx100
-                candidates_scores = self.compute_candidates_scores(candidates_targets, vocab_logits)
+                candidates_scores = self.compute_candidates_scores(candidates_targets, vocab_logits, attributes)
                 infer_res['retrieval'] = candidates_scores
             return infer_res
 
@@ -240,7 +228,7 @@ class MMStatefulLSTM(nn.Module):
         return best_dict
 
 
-    def compute_candidates_scores(self, candidates_targets, vocab_logits):
+    def compute_candidates_scores(self, candidates_targets, vocab_logits, attributes):
         """The score of each candidate is the sum of the log-likelihood of each word, normalized by its length.
         The score will be a negative value, longer sequences will be penalized without the normalization by length.
         """
@@ -255,6 +243,11 @@ class MMStatefulLSTM(nn.Module):
                         break
                     curr_lprob.append(words_probs[candidate_word.item()].item())
                 scores[batch_idx, sentence_idx] = sum(curr_lprob)/len(curr_lprob)
+                #semantic score
+                candidate_string = self.tokenizer.decode([self.genid2bertid[id.item()] for id in candidate_ids])
+                semantic_score = [attr.lower() in candidate_string.lower() and len(attr) > 1 for attr in attributes]
+                if len(attributes):
+                    scores[batch_idx, sentence_idx] += sum(semantic_score)/len(attributes)
         return scores
 
 
@@ -283,10 +276,11 @@ class MMStatefulLSTM(nn.Module):
         responses_token_type = torch.stack([item[7] for item in batch])
         #history = [item[4] for item in batch]
         #actions = torch.stack([item[5] for item in batch])
-        #attributes = [item[6] for item in batch]
-        focus = torch.stack([item[8] for item in batch])
-        focus_mask = torch.stack([item[9] for item in batch])
-        focus_token_type = torch.stack([item[10] for item in batch])
+        attributes = [item[8] for item in batch]
+        focus = torch.stack([item[9] for item in batch])
+        focus_mask = torch.stack([item[10] for item in batch])
+        focus_token_type = torch.stack([item[11] for item in batch])
+
         if self.mode == 'train':
             #creates target by shifting and converting id to output vocabulary
             generative_targets = torch.cat((responses[:, 1:].clone().detach(), torch.zeros((responses.shape[0], 1), dtype=torch.long)), dim=-1)
@@ -300,9 +294,9 @@ class MMStatefulLSTM(nn.Module):
                     else:
                         generative_targets[batch_idx][id_idx] = self.bert2genid[curr_id.item()]
         if self.mode == 'inference' and self.retrieval_eval:
-            candidates = torch.stack([item[11] for item in batch])
-            candidates_mask = torch.stack([item[12] for item in batch])
-            candidates_token_type = torch.stack([item[13] for item in batch])
+            candidates = torch.stack([item[12] for item in batch])
+            candidates_mask = torch.stack([item[13] for item in batch])
+            candidates_token_type = torch.stack([item[14] for item in batch])
 
             candidates_targets = torch.cat((candidates[:, :, 1:].clone().detach(), torch.zeros((responses.shape[0], 100, 1), dtype=torch.long)), dim=-1)
             for batch_idx, _ in enumerate(candidates_targets):
@@ -340,103 +334,9 @@ class MMStatefulLSTM(nn.Module):
             batch_dict['candidates_mask'] = candidates_mask
             batch_dict['candidates_token_type'] = candidates_token_type
             batch_dict['candidates_targets'] = candidates_targets
-        """
-        # reorder the sequences from the longest one to the shortest one.
-        # keep the correspondance with the target
-        transcripts_lengths = torch.tensor(list(map(len, utterances)), dtype=torch.long)
-        transcripts_tensor = torch.zeros((len(utterances), transcripts_lengths.max()), dtype=torch.long)
-        transcripts_padding_mask = torch.zeros((len(utterances), transcripts_lengths.max()), dtype=torch.long)
-        for idx, (seq, seqlen) in enumerate(zip(utterances, transcripts_lengths)):
-            transcripts_tensor[idx, :seqlen] = seq.clone().detach()
-            transcripts_padding_mask[idx, :seqlen] = 1
+            assert len(attributes) == 1, 'Batch size greater than 1 for attributes'
+            batch_dict['attributes'] = attributes[0]
 
-        #pad the history
-        padded_history = []
-        for history_sample in history:
-            if not len(history_sample):
-                padded_history.append(history_sample)
-                continue
-            history_lens = torch.tensor(list(map(len, history_sample)), dtype=torch.long)
-            history_tensor = torch.zeros((len(history_sample), history_lens.max()), dtype=torch.long)
-            for idx, (seq, seqlen) in enumerate(zip(history_sample, history_lens)):
-                history_tensor[idx, :seqlen] = seq.clone().detach()
-            padded_history.append(history_tensor)
-
-        #pad the response candidates
-        # if training take only the true response (the first one)
-        if self.training or not self.retrieval_eval:
-            responses_pool = [pool_sample[0] for pool_sample in responses_pool]
-            batch_lens = torch.tensor(list(map(len, responses_pool)), dtype=torch.long)
-            pools_tensor = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
-            pools_padding_mask = torch.zeros((len(responses_pool), batch_lens.max()+2), dtype=torch.long)
-            pools_tensor[:, 0] = self.start_id
-            for batch_idx, (seq, seqlen) in enumerate(zip(responses_pool, batch_lens)):
-                pools_tensor[batch_idx, 1:seqlen+1] = seq.clone().detach()
-                pools_tensor[batch_idx, seqlen+1] = self.end_id
-                pools_padding_mask[batch_idx, :seqlen+2] = 1
-        else:
-            batch_lens = torch.tensor([list(map(len, pool_sample)) for pool_sample in responses_pool], dtype=torch.long)
-            pools_tensor = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()+2), dtype=torch.long)
-            pools_padding_mask = torch.zeros((len(responses_pool), len(responses_pool[0]), batch_lens.max()+2), dtype=torch.long)
-            pools_tensor[:, :, 0] = self.start_id
-            for batch_idx, (pool_lens, pool_sample) in enumerate(zip(batch_lens, responses_pool)):       
-                for pool_idx, (seq, seqlen) in enumerate(zip(pool_sample, pool_lens)):
-                    pools_tensor[batch_idx, pool_idx, 1:seqlen+1] = seq.clone().detach()
-                    pools_tensor[batch_idx, pool_idx, seqlen+1] = self.end_id
-                    pools_padding_mask[batch_idx, pool_idx, :seqlen+2] = 1
-
-        #pad focus items
-        padded_focus = []
-        keys = [[datum[0] for datum in item] for item in focus_items]
-        vals = [[datum[1] for datum in item] for item in focus_items]
-        batch_klens = [list(map(len, key)) for key in keys]
-        batch_vlens = [list(map(len, val)) for val in vals]
-        klens_max, vlens_max = 0, 0
-        for klens, vlens in zip(batch_klens, batch_vlens):
-            curr_kmax = max(klens)
-            curr_vmax = max(vlens)
-            klens_max = curr_kmax if curr_kmax > klens_max else klens_max
-            vlens_max = curr_vmax if curr_vmax > vlens_max else vlens_max
-
-        for batch_idx, item in enumerate(focus_items):
-            curr_keys = torch.zeros((len(item), klens_max), dtype=torch.long)
-            curr_vals = torch.zeros((len(item), vlens_max), dtype=torch.long)
-            for item_idx, (k, v) in enumerate(item):
-                curr_keys[item_idx, :batch_klens[batch_idx][item_idx]] = k.clone().detach()
-                curr_vals[item_idx, :batch_vlens[batch_idx][item_idx]] = v.clone().detach()
-            padded_focus.append([curr_keys, curr_vals])
-
-        
-        # sort instances by sequence length in descending order and order targets to keep the correspondance
-        transcripts_lengths, perm_idx = transcripts_lengths.sort(0, descending=True)
-        transcripts_tensor = transcripts_tensor[perm_idx]
-        transcripts_padding_mask = transcripts_padding_mask[perm_idx]
-        pools_tensor = pools_tensor[perm_idx]
-        pools_padding_mask = pools_padding_mask[perm_idx]
-        sorted_dial_ids = []
-        sorted_dial_turns = []
-        sorted_dial_history = []
-        sorted_actions = []
-        sorted_attributes = []
-        sorted_focus_items = []
-        for idx in perm_idx:
-            sorted_dial_ids.append(dial_ids[idx])
-            sorted_dial_turns.append(turns[idx])
-            sorted_dial_history.append(padded_history[idx])
-            sorted_actions.append(actions[idx])
-            sorted_attributes.append(attributes[idx])
-            sorted_focus_items.append(padded_focus[idx])
-        
-
-        batch_dict = {}
-        batch_dict['utterances'] = transcripts_tensor
-        batch_dict['utterances_mask'] = transcripts_padding_mask
-        batch_dict['history'] = padded_history
-        batch_dict['actions'] = actions
-        batch_dict['attributes'] = attributes
-        batch_dict['focus_items'] = padded_focus
-        #batch_dict['seq_lengths'] = transcripts_lengths
-        """
         ret_tuple = (dial_ids, turns, batch_dict)
         if self.mode == 'train':
             ret_tuple += (generative_targets,)

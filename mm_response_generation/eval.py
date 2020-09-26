@@ -69,27 +69,11 @@ def move_batch_to_device(batch, device):
     for key in batch.keys():
         if key == 'history':
             raise Exception('Not implemented')
-        batch[key] = batch[key].to(device)
-    """
-    for h_idx in range(len(batch['history'])):
-        if len(batch['history'][h_idx]):
-            batch['history'][h_idx] = batch['history'][h_idx].to(device)
-    for i_idx in range(len(batch['focus_items'])):
-        batch['focus_items'][i_idx][0] =  batch['focus_items'][i_idx][0].to(device)
-        batch['focus_items'][i_idx][1] =  batch['focus_items'][i_idx][1].to(device)
-    batch['seq_lengths'] = batch['seq_lengths'].to(device)
-    """
+        if key != 'attributes':
+            batch[key] = batch[key].to(device)
 
 
 def visualize_result(utt_ids, item_ids, id2word, gen_ids=None):
-    """
-    keys = []
-    vals = []
-    for key, val in zip(item_ids[0], item_ids[1]):
-        keys.append(' '.join([id2word[id.item()] for id in key if id != 0]))
-        vals.append(' '.join([id2word[id.item()] for id in val if id != 0]))
-    item = ['{}: {}'.format(key, val) for key, val in zip(keys, vals)]
-    """
 
     item = [id2word[id.item()] for id in item_ids if id != 0]
     words_request = [id2word[id.item()] for id in utt_ids if id != 0]
@@ -123,11 +107,9 @@ def eval(model, test_dataset, args, save_folder, device):
             turn = turns[0]
 
             move_batch_to_device(batch, device)
-            #visualize_result(batch['utterances'][0], batch['focus'][0], model.id2word)
             res = model(**batch,
                         history=None,
-                        actions=None,
-                        attributes=None)
+                        actions=None)
             if args.gen_eval:
                 gen_eval_dict[dial_id]['predictions'].append({'turn_id': turn, 'response': res['generation']['string']})
                 #visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, res['generation']['string'])

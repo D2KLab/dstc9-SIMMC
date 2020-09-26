@@ -22,6 +22,7 @@ class FastDataset(Dataset):
         self.retrieval = retrieval
         if not retrieval:
             self.data['data_dict'].pop('candidates', None)
+            self.data['data_dict'].pop('attributes', None)
         self.metadata = torch.load(metadata_ids_path)
         self.dataset_name = 'SIMMC'
         self.task = 'response_retrieval'
@@ -54,6 +55,7 @@ class FastDataset(Dataset):
                     self.data['data_dict']['responses']['input_ids'][index],
                     self.data['data_dict']['responses']['attention_mask'][index],
                     self.data['data_dict']['responses']['token_type_ids'][index],
+                    self.data['data_dict']['attributes'][index],
                     #self.data['data_dict']['history'][index],
                     #self.data['data_dict']['actions'][index],
                     #self.data['data_dict']['attributes'][index],

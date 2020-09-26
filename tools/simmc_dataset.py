@@ -189,6 +189,11 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                 'skirtlength': 'skirt length'}
     _ACT2STR = {'none': 'none', 'searchdatabase': 'search database', 'searchmemory': 'search memory', 'specifyinfo': 'specify info', 'addtocart': 'add to cart'}
 
+    #map attribute names to metadata fields
+    _ATTR2FIELD = {'embellishment': 'embellishments', 'skirtStyle': 'skirtStyle', 'availableSizes': 'availableSizes', 'dressStyle': 'dressStyle', 'jacketStyle': 'jacketStyle',
+                'sleeveLength': 'sleeveStyle', 'soldBy': 'brand', 'price': 'price', 'hemLength': 'hemLength', 'size': 'availableSizes', 'sweaterStyle': 'sweaterStyle', 
+                'customerRating': 'customerRating', 'hemStyle': 'hemStyle', 'hasPart': 'embellishments', 'pattern': 'pattern', 'clothingCategory': 'type', 
+                'waistStyle': 'waistStyle', 'sleeveStyle': 'sleeveStyle', 'necklineStyle': 'necklineStyle', 'skirtLength': 'skirtStyle', 'color': 'color', 'brand': 'brand'}
 
     def __init__(self, data_path, metadata_path, actions_path, candidates_path, verbose=True):
         super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
@@ -269,10 +274,18 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
 
         #convert actions and attributes to english strings
         action = action.lower() if action.lower() not in self._ACT2STR else self._ACT2STR[action.lower()]
-        #attributes = [attr.lower() if attr.lower() not in self._ATTR2STR else self._ATTR2STR[attr.lower()] for attr in attributes]
+        raw_fields = [attr if attr not in self._ATTR2FIELD else self._ATTR2FIELD[attr] for attr in attributes]
+        fields = [field.lower() if field.lower() not in self._ATTR2STR else self._ATTR2STR[field.lower()] for field in raw_fields]
+        item_attributes = []
+        if not len(fields):
+            item_attributes.append([])
+        for field in fields:
+            if field in self.processed_metadata[str(focus)] and len(self.processed_metadata[str(focus)][field]):
+                item_attributes.append(self.processed_metadata[str(focus)][field])
+            else:
+                item_attributes.append([])
         retrieval_candidates = [self.candidates[candidate_id] for candidate_id in candidates_ids]
-
-        return dial_id, turn, user_req, wizard_resp, history, focus, action, attributes, retrieval_candidates
+        return dial_id, turn, user_req, wizard_resp, history, focus, action, item_attributes, retrieval_candidates
 
 
     def __len__(self):
