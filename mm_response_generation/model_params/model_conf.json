@@ -1,0 +1,1 @@
+{"dropout_prob": 0, "freeze_bert": true, "n_decoders": 1, "decoder_heads": 4}

@@ -55,7 +55,6 @@ class FastDataset(Dataset):
                     self.data['data_dict']['responses']['input_ids'][index],
                     self.data['data_dict']['responses']['attention_mask'][index],
                     self.data['data_dict']['responses']['token_type_ids'][index],
-                    self.data['data_dict']['attributes'][index],
                     #self.data['data_dict']['history'][index],
                     #self.data['data_dict']['actions'][index],
                     #self.data['data_dict']['attributes'][index],
@@ -63,7 +62,8 @@ class FastDataset(Dataset):
                     self.metadata['items_tensors']['attention_mask'][focus_pos],
                     self.metadata['items_tensors']['token_type_ids'][focus_pos])
         if self.retrieval:
-            ret_tuple += (self.data['data_dict']['candidates']['input_ids'][index],
+            ret_tuple += (self.data['data_dict']['attributes'][index],
+                        self.data['data_dict']['candidates']['input_ids'][index],
                         self.data['data_dict']['candidates']['attention_mask'][index],
                         self.data['data_dict']['candidates']['token_type_ids'][index])
 

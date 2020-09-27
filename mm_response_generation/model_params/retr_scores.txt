@@ -1,0 +1,4 @@
+Reading: simmc/data/simmc_fashion/fashion_devtest_dials_retrieval_candidates.json
+Reading: mm_response_generation/model_params/eval_retr.json
+#Instances evaluated retrieval: 5395
+{'r1': 0.29119555143651527, 'r5': 0.5590361445783133, 'r10': 0.6873030583873957, 'mean': 13.555885078776646, 'mrr': 0.4186882175777157}

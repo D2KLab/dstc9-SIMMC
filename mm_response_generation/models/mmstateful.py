@@ -276,10 +276,9 @@ class MMStatefulLSTM(nn.Module):
         responses_token_type = torch.stack([item[7] for item in batch])
         #history = [item[4] for item in batch]
         #actions = torch.stack([item[5] for item in batch])
-        attributes = [item[8] for item in batch]
-        focus = torch.stack([item[9] for item in batch])
-        focus_mask = torch.stack([item[10] for item in batch])
-        focus_token_type = torch.stack([item[11] for item in batch])
+        focus = torch.stack([item[8] for item in batch])
+        focus_mask = torch.stack([item[9] for item in batch])
+        focus_token_type = torch.stack([item[10] for item in batch])
 
         if self.mode == 'train':
             #creates target by shifting and converting id to output vocabulary
@@ -294,6 +293,7 @@ class MMStatefulLSTM(nn.Module):
                     else:
                         generative_targets[batch_idx][id_idx] = self.bert2genid[curr_id.item()]
         if self.mode == 'inference' and self.retrieval_eval:
+            attributes = [item[11] for item in batch]
             candidates = torch.stack([item[12] for item in batch])
             candidates_mask = torch.stack([item[13] for item in batch])
             candidates_token_type = torch.stack([item[14] for item in batch])

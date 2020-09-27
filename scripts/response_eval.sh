@@ -9,7 +9,7 @@ export GEN_EVAL_SCRIPT=simmc/mm_action_prediction/tools/response_evaluation.py
 export RETR_EVAL_SCRIPT=simmc/mm_action_prediction/tools/retrieval_evaluation.py
 
 export PROCESSED_FOLDER=processed_data/mm_response_generation
-export CHECKPOINT_FOLDER=mm_response_generation/checkpoints/archive/2020-09-21T15:59:06
+export CHECKPOINT_FOLDER=mm_response_generation/model_params
 export MODEL_WEIGHTS_PATH=${CHECKPOINT_FOLDER}/state_dict.pt
 export VOCABULARY=${CHECKPOINT_FOLDER}/bert2genid.pkl
 export MODEL_CONF=${CHECKPOINT_FOLDER}/model_conf.json
