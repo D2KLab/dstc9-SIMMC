@@ -73,16 +73,14 @@ def move_batch_to_device(batch, device):
             batch[key] = batch[key].to(device)
 
 
-def visualize_result(utt_ids, item_ids, id2word, gen_ids=None):
-
-    item = [id2word[id.item()] for id in item_ids if id != 0]
-    words_request = [id2word[id.item()] for id in utt_ids if id != 0]
-    if gen_ids is not None:
-        words_resp = [id2word[id] for id in gen_ids]
+def visualize_result(utt_ids, item_ids, tokenizer, gen_ids=None):
+    item = tokenizer.decode(item_ids)
+    words_request = tokenizer.decode(utt_ids)
     #cleaned_req = clean_response(words_request)
     #cleaned_resp = clean_response(words_resp)
     print('USER: {}'.format(words_request))
     if gen_ids is not None:
+        words_resp = tokenizer.decode(gen_ids)
         print('GEN: {}'.format(words_resp))
     print('Item: {}'.format(item))
 
@@ -112,17 +110,16 @@ def eval(model, test_dataset, args, save_folder, device):
                         actions=None)
             if args.gen_eval:
                 gen_eval_dict[dial_id]['predictions'].append({'turn_id': turn, 'response': res['generation']['string']})
-                #visualize_result(batch['utterances'][0], batch['focus_items'][0], id2word, res['generation']['string'])
+                #visualize_result(batch['utterances'][0], batch['focus_items'][0], model.tokenizer, res['generation']['string'])
             if args.retrieval_eval:
+                #visualize_result(batch['utterances'][0], batch['focus'][0], model.tokenizer)
                 retr_eval_dict[dial_id]['candidate_scores'].append({'turn_id': turn, 'scores': res['retrieval'].squeeze(0).tolist()})
-            
-            #todo here adjust candidates scores based on semantic attribute informations
 
     if args.gen_eval:
         gen_eval_list = []
         for key in gen_eval_dict:
             gen_eval_list.append(gen_eval_dict[key])
-        save_file = os.path.join(save_folder, 'eval_gen.json')
+        save_file = os.path.join(save_folder, 'teststd_eval_gen.json')
         try:
             with open(save_file, 'w+') as fp:
                 json.dump(gen_eval_list, fp)
@@ -133,7 +130,7 @@ def eval(model, test_dataset, args, save_folder, device):
         retr_eval_list = []
         for key in retr_eval_dict:
             retr_eval_list.append(retr_eval_dict[key])
-        save_file = os.path.join(save_folder, 'eval_retr.json')
+        save_file = os.path.join(save_folder, 'testsdt_predictions.json')
         try:
             with open(save_file, 'w+') as fp:
                 json.dump(retr_eval_list, fp)

@@ -41,7 +41,7 @@ class SIMMCDataset(Dataset):
     (dict) self.processed_turns[<dialogue_id>][turn] = {'transcript': <tokenized_transcript>, 'system_transcript': <tokenized_system_transcript>}
     """
 
-    def __init__(self, data_path, metadata_path, verbose=True):
+    def __init__(self, data_path, metadata_path, return_only_last_turn=False, verbose=True):
         """Dataset constructor.
         Args:
             path (str): path to dataset json file
@@ -57,6 +57,7 @@ class SIMMCDataset(Dataset):
         self.version = raw_data['version']
         self.year = raw_data['year']
         self.domain = raw_data['domain']
+        self.return_last = return_only_last_turn
         self.verbose = verbose
         if self.verbose:
             print('Creating dataset index ...')
@@ -123,11 +124,14 @@ class SIMMCDataset(Dataset):
                 self.ids.append(dialog['dialogue_idx'])
                 dialog_obj = {
                             'dialogue': dialog['dialogue'], 
-                            'dialogue_coref_map': dialog['dialogue_coref_map'], 
+                            #'dialogue_coref_map': dialog['dialogue_coref_map'], not present in teststd
                             'dialogue_idx': dialog['dialogue_idx'], 
                             'domains': dialog['domains'], 
                             'dialogue_task_id': dialog['dialogue_task_id']}
-                transcripts = ['{}_{}'.format(dialog['dialogue_idx'], turn) for turn, _ in enumerate(dialog['dialogue'])]
+                if self.return_last:
+                    transcripts = ['{}_{}'.format(dialog['dialogue_idx'], len(dialog['dialogue'])-1)]
+                else:
+                    transcripts = ['{}_{}'.format(dialog['dialogue_idx'], turn) for turn, _ in enumerate(dialog['dialogue'])]
                 self.id2dialog[dialog['dialogue_idx']] = dialog_obj
                 self.transcripts.extend(transcripts)
             else:
@@ -195,8 +199,8 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
                 'customerRating': 'customerRating', 'hemStyle': 'hemStyle', 'hasPart': 'embellishments', 'pattern': 'pattern', 'clothingCategory': 'type', 
                 'waistStyle': 'waistStyle', 'sleeveStyle': 'sleeveStyle', 'necklineStyle': 'necklineStyle', 'skirtLength': 'skirtStyle', 'color': 'color', 'brand': 'brand'}
 
-    def __init__(self, data_path, metadata_path, actions_path, candidates_path, verbose=True):
-        super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, verbose=verbose)
+    def __init__(self, data_path, metadata_path, actions_path, candidates_path, return_only_last_turn=False, verbose=True):
+        super(SIMMCDatasetForResponseGeneration, self).__init__(data_path=data_path, metadata_path=metadata_path, return_only_last_turn=return_only_last_turn, verbose=verbose)
 
         self.task = 'response_generation'
         self.load_actions(actions_path)
@@ -324,11 +328,14 @@ class SIMMCDatasetForResponseGeneration(SIMMCDataset):
             assert len(action['actions']) == len(action['focus_images']), 'focus_images has different length than number of actions'
             self.id2act[action['dialog_id']] = action['actions']
             self.id2actfocus[action['dialog_id']] = action['focus_images']
-        
+
         #check if we have actions for all the turns
         for dial_id in self.ids:
-            assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
-                'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
+            try:
+                assert len(self.id2dialog[dial_id]['dialogue']) == len(self.id2act[dial_id]),\
+                    'Actions number does not match dialogue turns in dialogue {}'.format(dial_id)
+            except:
+                pdb.set_trace()
 
 
 
