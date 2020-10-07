@@ -2,7 +2,7 @@
 
 #export MODEL=blindstateless
 #export MODEL=blindstateful
-export MODEL=mmstateful
+export MODEL=matransformer
 
 export PROCESSED_FOLDER=processed_data/mm_response_generation
 export TRAIN_DATA=$PROCESSED_FOLDER/train_response_retrieval_data.dat
