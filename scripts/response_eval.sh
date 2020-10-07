@@ -2,7 +2,7 @@
 
 #export MODEL=blindstateless
 #export MODEL=blindstateful
-export MODEL=mmstateful
+export MODEL=matransformer
 
 export SIMMC_FOLDER=simmc/data/simmc_fashion
 export GEN_EVAL_SCRIPT=simmc/mm_action_prediction/tools/response_evaluation.py

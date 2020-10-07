@@ -1,2 +1,2 @@
 from .blindstateless import BlindStatelessLSTM
-from .mmstateful import MMStatefulLSTM
+from .matransformer import MultiAttentiveTransformer

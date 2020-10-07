@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 from config import model_conf, special_toks, train_conf
 from dataset import FastDataset
-from models import BlindStatelessLSTM, MMStatefulLSTM
+from models import BlindStatelessLSTM, MultiAttentiveTransformer
 from utilities import DataParallelV2, Logger, plotting_loss
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -36,7 +36,7 @@ def instantiate_model(args, out_vocab, device):
                                 freeze_embeddings=True)
     """
 
-    if args.model == 'mmstateful':
+    if args.model == 'matransformer':
         if args.from_checkpoint is not None:
             with open(os.path.join(args.from_checkpoint, 'state_dict.pt'), 'rb') as fp:
                 state_dict = torch.load(fp)
@@ -45,7 +45,7 @@ def instantiate_model(args, out_vocab, device):
             loaded_conf.pop('dropout_prob')
             model_conf.update(loaded_conf)
 
-        model = MMStatefulLSTM(**model_conf,
+        model = MultiAttentiveTransformer(**model_conf,
                                 seed=train_conf['seed'],
                                 device=device,
                                 out_vocab=out_vocab,
@@ -291,9 +291,9 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model",
         type=str,
-        choices=['blindstateless', 'blindstateful', 'mmstateful'],
+        choices=['blindstateless', 'blindstateful', 'matransformer'],
         required=True,
-        help="Type of the model (options: 'blindstateless', 'blindstateful', 'mmstateful')")
+        help="Type of the model (options: 'blindstateless', 'blindstateful', 'matransformer')")
     parser.add_argument(
         "--data",
         type=str,

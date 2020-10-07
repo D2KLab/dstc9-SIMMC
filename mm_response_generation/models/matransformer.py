@@ -14,7 +14,7 @@ from transformers import BertTokenizer #todo remove
 
 _MAX_INFER_LEN = 30
 
-class MMStatefulLSTM(nn.Module):
+class MultiAttentiveTransformer(nn.Module):
 
     def __init__(self,
                 pad_token,
@@ -34,7 +34,7 @@ class MMStatefulLSTM(nn.Module):
                 device='cpu'):
 
         torch.manual_seed(seed)
-        super(MMStatefulLSTM, self).__init__()
+        super(MultiAttentiveTransformer, self).__init__()
 
         if mode == 'inference':
             assert retrieval_eval is not None or gen_eval is not None, 'At least one among retrieval_eval and gen_eval must be activated during inference' 

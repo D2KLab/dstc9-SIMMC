@@ -13,7 +13,7 @@ sys.path.append('.')
 
 from config import special_toks, train_conf
 from dataset import FastDataset
-from models import BlindStatelessLSTM, MMStatefulLSTM
+from models import BlindStatelessLSTM, MultiAttentiveTransformer
 from tools.simmc_dataset import SIMMCDatasetForResponseGeneration
 
 
@@ -40,8 +40,8 @@ def instantiate_model(args, model_configurations, out_vocab, device):
                                 seed=train_conf['seed'],
                                 OOV_corrections=False,
                                 freeze_embeddings=True)
-    elif args.model == 'mmstateful':
-        return MMStatefulLSTM(**model_configurations,
+    elif args.model == 'matransformer':
+        return MultiAttentiveTransformer(**model_configurations,
                                 seed=train_conf['seed'],
                                 device=device,
                                 out_vocab=out_vocab,
@@ -149,9 +149,9 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model",
         type=str,
-        choices=['blindstateless', 'blindstateful', 'mmstateful'],
+        choices=['blindstateless', 'blindstateful', 'matransformer'],
         required=True,
-        help="Type of the model (options: 'blindstateless', 'blindstateful', 'mmstateful')")
+        help="Type of the model (options: 'blindstateless', 'blindstateful', 'matransformer')")
     parser.add_argument(
         "--model_path",
         default=None,
